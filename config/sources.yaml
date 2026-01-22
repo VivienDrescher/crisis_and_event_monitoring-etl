@@ -1,0 +1,29 @@
+sources:
+
+  acled:
+    enabled: true
+    type: csv_download
+    update_frequency: irregular
+    retention_policy: append_only
+    single_file_only: true
+
+    path_template:
+      base_url: https://acleddata.com/system/files
+      folder_pattern: "{year}-{month:02d}"
+      filename_pattern: "number_of_political_violence_events_by_country-month-year_as-of-{day:02d}{month_abbr}{year}.xlsx"
+      date_format:
+        month_abbr: "%b"
+
+
+  gdelt:
+    enabled: true
+    type: csv_download
+    update_frequency: daily
+    retention_policy: append_only
+
+    path_template:
+      base_url: https://data.gdeltproject.org/events/
+      pattern: "{date}.export.CSV.zip"
+
+
+

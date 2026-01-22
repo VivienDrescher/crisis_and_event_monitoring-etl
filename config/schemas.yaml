@@ -1,0 +1,90 @@
+schemas:
+
+  bronze:
+
+    acled:
+      required_columns:
+        - event_id_cnty
+        - event_date
+        - country
+        - event_type
+        - fatalities
+        - latitude
+        - longitude
+
+    gdelt:
+      required_columns:
+        - GlobalEventID
+        - SQLDATE
+        - Actor1CountryCode
+        - EventCode
+      
+  silver:
+
+    acled:
+      primary_key: event_id_cnty
+
+      dtypes:
+        event_id_cnty: string
+        event_date: date
+        country: string
+        event_type: string
+        fatalities: int
+        latitude: float
+        longitude: float
+
+      constraints:
+        fatalities:
+          min: 0
+        latitude:
+          min: -90
+          max: 90
+        longitude:
+          min: -180
+          max: 180
+
+      allow_nulls:
+        - latitude
+        - longitude
+
+    gdelt:
+      primary_key: GlobalEventID
+
+      dtypes:
+        GlobalEventID: int
+        SQLDATE: date
+        Actor1CountryCode: string
+        EventCode: string
+
+      constraints:
+        SQLDATE:
+          min: 1979-01-01
+
+  gold: 
+
+    crisis_event_activity:
+      description: >
+        Unified crisis and political event indicators across sources.
+
+      datasets:
+
+        - name: events_by_country_day
+          grain:
+            - country
+            - date
+          sources:
+            - acled
+            - gdelt
+          metrics:
+            total_events: count
+
+        - name: fatalities_by_country_month
+          grain:
+            - country
+            - year
+            - month
+          sources:
+            - acled
+          metrics:
+            total_fatalities: sum
+

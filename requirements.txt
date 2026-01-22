@@ -1,20 +1,14 @@
-# Core
+# Load environment variables
 python-dotenv>=1.0.0
-requests>=2.31.0
 
-# Data handling
+# HTTP requests
+requests>=2.28.0
+
+# YAML reading/writing
+PyYAML>=6.0
+
+# Data processing
 pandas>=2.0.0
-pyarrow>=14.0.0
 
-# Validation / quality checks
-pandera>=0.18.0
-
-# Dates & scheduling helpers
-python-dateutil>=2.8.2
-
-# Logging / CLI
-loguru>=0.7.0
-typer>=0.12.0
-
-# Visualization
-matplotlib>=3.8.0
+# Optional: for Excel reading if ACLED files are xlsx
+openpyxl>=3.1.0
