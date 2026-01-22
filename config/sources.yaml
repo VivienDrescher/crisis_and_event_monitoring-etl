@@ -22,8 +22,8 @@ sources:
     retention_policy: append_only
 
     path_template:
-      base_url: https://data.gdeltproject.org/events/
-      pattern: "{date}.export.CSV.zip"
+      base_url: http://data.gdeltproject.org/events
+      filename_pattern: "{year}{month:02d}{day:02d}.export.CSV.zip"
 
 
 

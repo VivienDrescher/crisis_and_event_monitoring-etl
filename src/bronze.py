@@ -145,18 +145,49 @@ while current_date >= start_date:
         )
         break
 
-    # Build folder and filename using path_template
-    folder = source["path_template"]["folder_pattern"].format(
-        year=current_date.year,
-        month=current_date.month
-    )
-    month_abbr = current_date.strftime(source["path_template"]["date_format"]["month_abbr"])
-    filename = source["path_template"]["filename_pattern"].format(
-        day=current_date.day,
-        month_abbr=month_abbr,
-        year=current_date.year
-    )
-    url = f"{source['path_template']['base_url']}/{folder}/{filename}"
+    # --------------------------
+    # Build folder (if any)
+    # --------------------------
+    folder_pattern = source["path_template"].get("folder_pattern")
+    if folder_pattern:
+        folder = folder_pattern.format(
+            year=current_date.year,
+            month=current_date.month
+        )
+    else:
+        folder = None
+
+    # --------------------------
+    # Build filename
+    # --------------------------
+    filename_pattern = source["path_template"]["filename_pattern"]
+
+    if "{month_abbr}" in filename_pattern:
+        # ACLED-style filename with month abbreviation
+        month_abbr_format = source["path_template"]["date_format"]["month_abbr"]
+        month_abbr = current_date.strftime(month_abbr_format)
+        filename = filename_pattern.format(
+            day=current_date.day,
+            month=current_date.month,
+            month_abbr=month_abbr,
+            year=current_date.year
+        )
+    else:
+        # Generic pattern (GDELT YYYYMMDD)
+        filename = filename_pattern.format(
+            year=current_date.year,
+            month=current_date.month,
+            day=current_date.day
+        )
+
+    # --------------------------
+    # Build URL
+    # --------------------------
+    if folder:
+        url = f"{source['path_template']['base_url']}/{folder}/{filename}"
+    else:
+        url = f"{source['path_template']['base_url']}/{filename}"
+
     local_path = output_dir / filename
 
     # Handle retention policy
@@ -199,7 +230,7 @@ while current_date >= start_date:
             if required_columns:
                 try:
                     df = pd.read_csv(local_path, nrows=10)
-                    print(df.columns)
+                    logger.info(df.columns)
                     missing_cols = [c for c in required_columns if c not in df.columns]
                     if missing_cols:
                         logger.warning(f"Missing columns in {filename}: {missing_cols}")
