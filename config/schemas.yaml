@@ -4,10 +4,10 @@ schemas:
 
     acled:
       required_columns:
-        - country
-        - month 
-        - year 
-        - events
+        - COUNTRY
+        - MONTH 
+        - YEAR 
+        - EVENTS
 
     gdelt:
       required_columns:

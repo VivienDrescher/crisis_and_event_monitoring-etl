@@ -53,7 +53,72 @@ def read_tabular_file(file_path, table_params=None, nrows=None):
 
     else:
         raise ValueError(f"Unsupported file type: {file_path.suffix}")
+    
+def write_tabular_file(
+    df: pd.DataFrame,
+    file_path: Path,
+    write_type: str | None = None,
+    write_params: dict | None = None,
+    safe_write: bool = True,
+):
+    """
+    Write a DataFrame to disk based on file type.
 
+    Args:
+        df (pd.DataFrame): DataFrame to write
+        file_path (Path): Target file path
+        write_type (str, optional): csv, xlsx, parquet. Defaults to file suffix.
+        write_params (dict, optional): Parameters forwarded to pandas writer
+        safe_write (bool): Write via temp file + atomic replace
+    """
+    write_params = write_params or {}
+    write_type = (write_type or file_path.suffix.lstrip(".")).lower()
+
+    # Temporary path for safe writes
+    target_path = file_path
+    tmp_path = file_path.with_suffix(file_path.suffix + ".tmp") if safe_write else file_path
+
+    if write_type == "csv":
+        df.to_csv(
+            tmp_path,
+            index=False,
+            **write_params,
+        )
+
+    elif write_type in ("xlsx", "xls"):
+        df.to_excel(
+            tmp_path,
+            index=False,
+            **write_params,
+        )
+
+    elif write_type == "parquet":
+        df.to_parquet(
+            tmp_path,
+            index=False,
+            **write_params,
+        )
+
+    else:
+        raise ValueError(f"Unsupported write type: {write_type}")
+
+    # Atomic replace
+    if safe_write:
+        tmp_path.replace(target_path)
+
+def derive_bronze_parquet_path(source_path: Path) -> Path:
+    """
+    Derive a clean bronze Parquet path from a source file path.
+    Removes all known data suffixes.
+    """
+    name = source_path.name.lower()
+
+    for suffix in [".zip", ".csv", ".tsv", ".xlsx", ".xls"]:
+        if name.endswith(suffix):
+            source_path = source_path.with_suffix("")
+            name = source_path.name.lower()
+
+    return source_path.with_suffix(".parquet")
     
 def validate_required_columns(df, required_columns):
 
@@ -63,6 +128,26 @@ def validate_required_columns(df, required_columns):
         raise 
     else: 
         logger.info(f"Column validation successfull.")
+
+def add_bronze_metadata(
+    df,
+    source,
+    source_file,
+    source_url=None,
+    run_id=None,
+):
+    df = df.copy()
+
+    df["_ingested_at"] = utc_now_iso()
+    df["_source"] = source
+    df["_source_file"] = source_file
+
+    if source_url:
+        df["_source_url"] = source_url
+    if run_id:
+        df["_run_id"] = run_id
+
+    return df
 
 # --------------------------
 # Load environment variables
@@ -226,19 +311,16 @@ while current_date >= start_date:
 
     url = f"{source['path_template']['base_url']}/{filename}"
 
-    local_path = output_dir / filename
-    if local_path.suffix == ".zip":
-        expected_path = local_path.with_suffix("")
-    else: 
-        expected_path = local_path 
+    bronze_path_temp = output_dir / filename
+    bronze_path_parquet = derive_bronze_parquet_path(bronze_path_temp)
 
     # Handle retention policy
-    if retention_policy == "append_only" and expected_path.exists():
+    if retention_policy == "append_only" and bronze_path_parquet.exists():
         logger.info(f"File exists (append_only), skipping: {filename}")
         current_date -= timedelta(days=1)
         found_latest_file = True
         continue
-    elif retention_policy == "overwrite" and expected_path.exists():
+    elif retention_policy == "overwrite" and bronze_path_parquet.exists():
         logger.info(f"Overwriting existing file: {filename}")
     elif retention_policy in ["append_only", "overwrite"]:
         # File does not exist yet → OK to download
@@ -254,33 +336,51 @@ while current_date >= start_date:
             response = requests.get(url, timeout=DOWNLOAD_TIMEOUT)
             response.raise_for_status()
 
-            # Save ZIP or CSV
-            with open(local_path, "wb") as f:
+            with open(bronze_path_temp, "wb") as f:
                 f.write(response.content)
-            logger.info(f"Downloaded {local_path}")
+            logger.info(f"Downloaded {bronze_path_temp}")
 
-            # Handle ZIP files
-            if local_path.suffix == ".zip":
-                with zipfile.ZipFile(local_path, "r") as z:
-                    z.extractall(local_path.parent)
-                logger.info(f"Extracted ZIP contents to {local_path.parent}")
+            file_extension = "." + table_params.get("file_type", "csv")
 
-                # Remove the ZIP
-                local_path.unlink()
+            # If ZIP → extract and remove ZIP
+            if bronze_path_temp.suffix.lower() == ".zip":
+                with zipfile.ZipFile(bronze_path_temp, "r") as z:
+                    z.extractall(bronze_path_temp.parent)
+                logger.info(f"Extracted ZIP contents to {bronze_path_temp.parent}")
+                bronze_path_temp.unlink()
 
-                # Point local_path to the extracted CSV
-                # Assumes ZIP contained exactly one CSV
-                # CSV name is same as ZIP but without .zip
-                local_path = local_path.with_suffix("")  # removes .zip → CSV
+                # Pick the extracted file (only the one with expected extension)
+                extracted_files = [
+                    p for p in bronze_path_temp.parent.iterdir()
+                    if p.is_file() and p.suffix.lower() == file_extension
+                ]
 
-            # Now local_path points to the CSV (ready to read)
-            downloaded_files.append(str(local_path))
+                if len(extracted_files) != 1:
+                    raise RuntimeError(
+                        f"Expected 1 {file_extension} file in ZIP, found {len(extracted_files)}: "
+                        f"{[p.name for p in extracted_files]}"
+                    )
+
+                bronze_path_temp = extracted_files[0]  # now points to extracted file
+
+            # Read the extracted / downloaded file
+            df = read_tabular_file(bronze_path_temp, table_params)
+
+            # Validate + enrich
+            validate_required_columns(df, required_columns)
+            df = add_bronze_metadata(df, source_name, filename, url, run_id)
+
+            # Write Parquet (final bronze artifact)
+            write_tabular_file(df, bronze_path_parquet, write_type="parquet")
+
+            # Remove the temporary source file (CSV/XLSX)
+            bronze_path_temp.unlink()
+
+            downloaded_files.append(str(bronze_path_parquet))
             found_latest_file = True
 
-            df = read_tabular_file(local_path, table_params)
-            validate_required_columns(df, required_columns)
-
             break  # Successfully downloaded, exit retry loop
+
 
         except requests.exceptions.HTTPError as e:
             # Check if 404 → file does not exist, skip retries
