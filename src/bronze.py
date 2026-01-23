@@ -13,6 +13,57 @@ import argparse
 import time
 from .utils.dates import utc_now_iso
 
+
+def read_tabular_file(file_path, table_params=None, nrows=None):
+    """
+    Read a CSV, TSV, Excel, or other tabular file using parameters from table_params.
+
+    Args:
+        file_path (Path or str): Path to the file
+        table_params (dict, optional): Parameters from sources.yaml
+        nrows (int, optional): Number of rows to read
+
+    Returns:
+        pd.DataFrame
+    """
+    if table_params is None:
+        table_params = {}
+
+    # Determine file type (from table_params or file extension)
+    file_type = table_params.get("file_type", file_path.suffix.lower().lstrip(".")).lower()
+
+    # Copy table_params to avoid modifying the original dict
+    params = dict(table_params)
+    params.pop("file_type", None)  # remove file_type before passing to pandas
+    if nrows is not None:
+        params["nrows"] = nrows
+
+    if file_type == "csv":
+        # Set dtype=str by default to avoid mixed-type warnings, unless overridden
+        params.setdefault("dtype", str)
+        # Also set low_memory=False to avoid chunk inference issues
+        params.setdefault("low_memory", False)
+        return pd.read_csv(file_path, **params)
+
+    elif file_type in ("xlsx", "xls"):
+        return pd.read_excel(file_path, **params)
+
+    elif file_type == "parquet":
+        return pd.read_parquet(file_path, **params)
+
+    else:
+        raise ValueError(f"Unsupported file type: {file_path.suffix}")
+
+    
+def validate_required_columns(df, required_columns):
+
+    missing_cols = [c for c in required_columns if c not in df.columns]
+    if missing_cols:
+        logger.error(f"Missing columns: {missing_cols}")
+        raise 
+    else: 
+        logger.info(f"Column validation successfull.")
+
 # --------------------------
 # Load environment variables
 # --------------------------
@@ -24,7 +75,7 @@ DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
 # Paths
-LANDING_PATH = os.getenv("LANDING_PATH", "data/landing")
+BRONZE_PATH = os.getenv("BRONZE_PATH", "data/bronze")
 LOG_PATH = os.getenv("LOG_PATH", "logs")
 CONFIG_PATH = os.getenv("CONFIG_PATH", "config")
 
@@ -36,7 +87,7 @@ RETRY_BACKOFF = int(os.getenv("RETRY_BACKOFF", 5))
 # --------------------------
 # Parse command-line arguments
 # --------------------------
-parser = argparse.ArgumentParser(description="Landing ETL ingestion for any source")
+parser = argparse.ArgumentParser(description="Bronze ETL ingestion for any source")
 parser.add_argument(
     "--source", type=str, required=True, help="Name of the source, e.g., gdelt"
 )
@@ -70,12 +121,12 @@ PIPELINE_TIMEZONE = pipeline_config.get("timezone", "UTC")
 # Setup logging
 # --------------------------
 # Prepare log file and ensure directory exists
-log_file = Path(LOG_PATH) / f"{PIPELINE_NAME}_landing_{source_name}_{run_id}.log"
+log_file = Path(LOG_PATH) / f"{PIPELINE_NAME}_bronze_{source_name}_{run_id}.log"
 os.makedirs(Path(LOG_PATH), exist_ok=True)
 
 # Configure logger
 logging_config["handlers"]["file"]["filename"] = str(log_file)
-logger = logging.getLogger(f"{pipeline_config['pipeline']['name']}.landing.{source_name}")
+logger = logging.getLogger(f"{pipeline_config['pipeline']['name']}.bronze.{source_name}")
 effective_log_level = logging.DEBUG if DEBUG else getattr(logging, LOG_LEVEL, logging.INFO)
 logging_config["root"]["level"] = effective_log_level
 logging.config.dictConfig(logging_config)
@@ -86,7 +137,7 @@ if DEBUG:
     logger.debug("Debug mode enabled")
 
 # Log start of ingestion run
-logger.info(f"Starting Landing ingestion run for source: {source_name}, run_id: {run_id}, ENV={ENV}, DEBUG={DEBUG}")
+logger.info(f"Starting Bronze ingestion run for source: {source_name}, run_id: {run_id}, ENV={ENV}, DEBUG={DEBUG}")
 
 # --------------------------
 # Validate source
@@ -97,6 +148,7 @@ if source_name not in sources_config["sources"]:
     raise ValueError(f"Source {source_name} not found in sources.yaml")
 
 source = sources_config["sources"][source_name]
+table_params = source.get("table_params", {})
 
 # Skip if source is disabled
 if not source.get("enabled", True):
@@ -107,6 +159,9 @@ if not source.get("enabled", True):
 source_type = source.get("type", "manual_drop")
 latest_file_only = source.get("latest_file_only", False)
 retention_policy = source.get("retention_policy", "append_only")
+
+# Required columns for Bronze validation
+required_columns = schemas_config["schemas"]["bronze"].get(source_name, {}).get("required_columns", [])
 
 # Validate source download type
 if source_type == "automated_download":
@@ -132,7 +187,7 @@ end_date = datetime.strptime(
 # --------------------------
 # Prepare data output directory
 # --------------------------
-output_dir = Path(LANDING_PATH) / source_name
+output_dir = Path(BRONZE_PATH) / source_name
 output_dir.mkdir(parents=True, exist_ok=True)
 
 runs_dir = output_dir / "_runs"
@@ -222,6 +277,9 @@ while current_date >= start_date:
             downloaded_files.append(str(local_path))
             found_latest_file = True
 
+            df = read_tabular_file(local_path, table_params)
+            validate_required_columns(df, required_columns)
+
             break  # Successfully downloaded, exit retry loop
 
         except requests.exceptions.HTTPError as e:
@@ -273,7 +331,7 @@ run_metadata = {
     "env": {
         "ENV": ENV,
         "DEBUG": DEBUG,
-        "LANDING_PATH": LANDING_PATH,
+        "BRONZE_PATH": BRONZE_PATH,
         "LOG_PATH": LOG_PATH,
         "DOWNLOAD_TIMEOUT": DOWNLOAD_TIMEOUT,
         "MAX_RETRIES": MAX_RETRIES,
@@ -286,5 +344,5 @@ metadata_file = runs_dir / f"run_{run_id}.yaml"
 with open(metadata_file, "w") as f:
     yaml.dump(run_metadata, f, sort_keys=False)
 
-logger.info(f"Landing ingestion run complete: {run_id}")
+logger.info(f"Bronze ingestion run complete: {run_id}")
 logger.info(f"Metadata saved to {metadata_file}")
