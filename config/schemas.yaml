@@ -4,13 +4,10 @@ schemas:
 
     acled:
       required_columns:
-        - event_id_cnty
-        - event_date
         - country
-        - event_type
-        - fatalities
-        - latitude
-        - longitude
+        - month 
+        - year 
+        - events
 
     gdelt:
       required_columns:

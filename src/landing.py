@@ -1,4 +1,6 @@
 import os
+import sys
+import zipfile
 from pathlib import Path
 import yaml
 import logging
@@ -9,9 +11,7 @@ import pandas as pd
 from dotenv import load_dotenv
 import argparse
 import time
-
-def utc_now_iso():
-    return datetime.now(timezone.utc).isoformat()
+from .utils.dates import utc_now_iso
 
 # --------------------------
 # Load environment variables
@@ -24,7 +24,7 @@ DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
 # Paths
-BRONZE_PATH = os.getenv("BRONZE_PATH", "data/bronze")
+LANDING_PATH = os.getenv("LANDING_PATH", "data/landing")
 LOG_PATH = os.getenv("LOG_PATH", "logs")
 CONFIG_PATH = os.getenv("CONFIG_PATH", "config")
 
@@ -36,9 +36,9 @@ RETRY_BACKOFF = int(os.getenv("RETRY_BACKOFF", 5))
 # --------------------------
 # Parse command-line arguments
 # --------------------------
-parser = argparse.ArgumentParser(description="Bronze ETL ingestion for any source")
+parser = argparse.ArgumentParser(description="Landing ETL ingestion for any source")
 parser.add_argument(
-    "--source", type=str, required=True, help="Name of the source, e.g., acled or gdelt"
+    "--source", type=str, required=True, help="Name of the source, e.g., gdelt"
 )
 args = parser.parse_args()
 source_name = args.source.lower()
@@ -63,29 +63,35 @@ with open(Path(CONFIG_PATH) / "schemas.yaml") as f:
 with open(Path(CONFIG_PATH) / "logging.yaml") as f:
     logging_config = yaml.safe_load(f)
 
+PIPELINE_NAME = pipeline_config["pipeline"]["name"]
+PIPELINE_TIMEZONE = pipeline_config.get("timezone", "UTC")
+
 # --------------------------
 # Setup logging
 # --------------------------
-log_file = Path(LOG_PATH) / f"pipeline_{source_name}_{run_id}.log"
+# Prepare log file and ensure directory exists
+log_file = Path(LOG_PATH) / f"{PIPELINE_NAME}_landing_{source_name}_{run_id}.log"
 os.makedirs(Path(LOG_PATH), exist_ok=True)
-logging_config["handlers"]["file"]["filename"] = str(log_file)
-logger = logging.getLogger(f"{pipeline_config['pipeline']['name']}.bronze.{source_name}")
 
+# Configure logger
+logging_config["handlers"]["file"]["filename"] = str(log_file)
+logger = logging.getLogger(f"{pipeline_config['pipeline']['name']}.landing.{source_name}")
 effective_log_level = logging.DEBUG if DEBUG else getattr(logging, LOG_LEVEL, logging.INFO)
 logging_config["root"]["level"] = effective_log_level
 logging.config.dictConfig(logging_config)
 
+# Enable debug mode if needed
 if DEBUG:
     logger.setLevel(logging.DEBUG)
     logger.debug("Debug mode enabled")
 
-logger.info(
-    f"Starting Bronze ingestion run for source: {source_name}, run_id: {run_id}, ENV={ENV}, DEBUG={DEBUG}"
-)
+# Log start of ingestion run
+logger.info(f"Starting Landing ingestion run for source: {source_name}, run_id: {run_id}, ENV={ENV}, DEBUG={DEBUG}")
 
 # --------------------------
 # Validate source
 # --------------------------
+# Verify that source is configured in sources.yaml
 if source_name not in sources_config["sources"]:
     logger.error(f"Source {source_name} not found in sources.yaml")
     raise ValueError(f"Source {source_name} not found in sources.yaml")
@@ -97,18 +103,23 @@ if not source.get("enabled", True):
     logger.info(f"Source {source_name} is disabled in sources.yaml. Skipping.")
     exit()
 
-# --------------------------
-# Source config parameters
-# --------------------------
-source_type = source.get("type", "csv_download")
-single_file_only = source.get("single_file_only", False)
+# Extract source config parameters
+source_type = source.get("type", "manual_drop")
+latest_file_only = source.get("latest_file_only", False)
 retention_policy = source.get("retention_policy", "append_only")
 
-# Required columns for Bronze validation
-required_columns = schemas_config["schemas"]["bronze"].get(source_name, {}).get("required_columns", [])
+# Validate source download type
+if source_type == "automated_download":
+    pass
+elif source_type == "manual_drop":
+    logger.info(f"{source_name} is a manually dropped source. Skipping ingestion pipeline for this source.")
+    sys.exit() 
+else: 
+    logger.error(f"Source type {source_type} not implemented. Skipping {source_name}.")
+    raise NotImplementedError(f"Source type {source_type} not implemented.")
 
 # --------------------------
-# Determine date range
+# Determine pipeline date range
 # --------------------------
 start_date = datetime.strptime(
     pipeline_config["pipeline"]["execution"]["start_date"], "%Y-%m-%d"
@@ -119,84 +130,60 @@ end_date = datetime.strptime(
 ).replace(tzinfo=timezone.utc)
 
 # --------------------------
-# Prepare output directory
+# Prepare data output directory
 # --------------------------
-output_dir = Path(BRONZE_PATH) / source_name
+output_dir = Path(LANDING_PATH) / source_name
 output_dir.mkdir(parents=True, exist_ok=True)
 
 runs_dir = output_dir / "_runs"
 runs_dir.mkdir(exist_ok=True)
 
-downloaded_files = []
-
 # --------------------------
-# Download loop
+# Download loop (backwards iteration by date)
 # --------------------------
 current_date = end_date
 today = datetime.now(timezone.utc)
-found_single_file = False
+downloaded_files = []
+found_latest_file = False
 
 while current_date >= start_date:
 
-    if single_file_only and found_single_file:
+    # Exit download loop if for this source only the latest file is required and it was downloaded already 
+    if latest_file_only and found_latest_file:
         logger.info(
             f"Latest file for source '{source_name}' found for date {current_date.date()}. "
             f"Stopping backward iteration."
         )
         break
 
-    # --------------------------
-    # Build folder (if any)
-    # --------------------------
-    folder_pattern = source["path_template"].get("folder_pattern")
-    if folder_pattern:
-        folder = folder_pattern.format(
-            year=current_date.year,
-            month=current_date.month
-        )
-    else:
-        folder = None
+    # Build url
+    filename_pattern = source["path_template"].get("filename_pattern")
 
-    # --------------------------
-    # Build filename
-    # --------------------------
-    filename_pattern = source["path_template"]["filename_pattern"]
-
-    if "{month_abbr}" in filename_pattern:
-        # ACLED-style filename with month abbreviation
-        month_abbr_format = source["path_template"]["date_format"]["month_abbr"]
-        month_abbr = current_date.strftime(month_abbr_format)
-        filename = filename_pattern.format(
-            day=current_date.day,
-            month=current_date.month,
-            month_abbr=month_abbr,
-            year=current_date.year
-        )
-    else:
-        # Generic pattern (GDELT YYYYMMDD)
+    if source_name == "gdelt":
         filename = filename_pattern.format(
             year=current_date.year,
             month=current_date.month,
             day=current_date.day
         )
+    else: 
+        logger.error(f"Undefined how to build filename based on filename pattern '{filename_pattern}' for source {source_name}.")
+        raise 
 
-    # --------------------------
-    # Build URL
-    # --------------------------
-    if folder:
-        url = f"{source['path_template']['base_url']}/{folder}/{filename}"
-    else:
-        url = f"{source['path_template']['base_url']}/{filename}"
+    url = f"{source['path_template']['base_url']}/{filename}"
 
     local_path = output_dir / filename
+    if local_path.suffix == ".zip":
+        expected_path = local_path.with_suffix("")
+    else: 
+        expected_path = local_path 
 
     # Handle retention policy
-    if retention_policy == "append_only" and local_path.exists():
+    if retention_policy == "append_only" and expected_path.exists():
         logger.info(f"File exists (append_only), skipping: {filename}")
         current_date -= timedelta(days=1)
-        found_single_file = True
+        found_latest_file = True
         continue
-    elif retention_policy == "overwrite" and local_path.exists():
+    elif retention_policy == "overwrite" and expected_path.exists():
         logger.info(f"Overwriting existing file: {filename}")
     elif retention_policy in ["append_only", "overwrite"]:
         # File does not exist yet → OK to download
@@ -205,41 +192,35 @@ while current_date >= start_date:
         logger.error(f"Undefined or unsupported retention policy: '{retention_policy}'")
         raise ValueError(f"Undefined or unsupported retention policy: '{retention_policy}'")
 
-    # --------------------------
-    # Download file (only CSV / Excel supported now)
-    # --------------------------
-    if source_type != "csv_download":
-        logger.error(f"Source type {source_type} not implemented. Skipping {source_name}.")
-        raise NotImplementedError(f"Source type {source_type} not implemented.")
-
-    # --------------------------
     # Download with retry logic
-    # --------------------------
     for attempt in range(1, MAX_RETRIES + 1):
         try:
+            # Download the file
             response = requests.get(url, timeout=DOWNLOAD_TIMEOUT)
             response.raise_for_status()
 
+            # Save ZIP or CSV
             with open(local_path, "wb") as f:
                 f.write(response.content)
-            logger.info(f"Saved to {local_path}")
+            logger.info(f"Downloaded {local_path}")
+
+            # Handle ZIP files
+            if local_path.suffix == ".zip":
+                with zipfile.ZipFile(local_path, "r") as z:
+                    z.extractall(local_path.parent)
+                logger.info(f"Extracted ZIP contents to {local_path.parent}")
+
+                # Remove the ZIP
+                local_path.unlink()
+
+                # Point local_path to the extracted CSV
+                # Assumes ZIP contained exactly one CSV
+                # CSV name is same as ZIP but without .zip
+                local_path = local_path.with_suffix("")  # removes .zip → CSV
+
+            # Now local_path points to the CSV (ready to read)
             downloaded_files.append(str(local_path))
-            found_single_file = True
-
-            # Column validation
-            if required_columns:
-                try:
-                    df = pd.read_csv(local_path, nrows=10)
-                    logger.info(df.columns)
-                    missing_cols = [c for c in required_columns if c not in df.columns]
-                    if missing_cols:
-                        logger.warning(f"Missing columns in {filename}: {missing_cols}")
-                except Exception as e:
-                    logger.error(f"Failed to read CSV {filename}: {e}")
-
-            # Debug sleep for development so logs remain readable
-            if DEBUG:
-                time.sleep(0.5)
+            found_latest_file = True
 
             break  # Successfully downloaded, exit retry loop
 
@@ -260,11 +241,11 @@ while current_date >= start_date:
             # Retryable network error
             logger.warning(f"Network error, attempt {attempt}/{MAX_RETRIES}: {e}")
             if attempt < MAX_RETRIES:
-                wait_time = RETRY_BACKOFF if not DEBUG else 1
+                wait_time = RETRY_BACKOFF if not DEBUG else 1 # Speedup retries during debugging 
                 time.sleep(wait_time)
             else:
                 logger.error(f"Max retries reached for {url}")
-                raise  # Optionally fail the pipeline
+                raise 
 
         except Exception as e:
             # Catch-all for other unexpected errors
@@ -273,13 +254,9 @@ while current_date >= start_date:
 
     current_date -= timedelta(days=1)
 
-
 # --------------------------
 # Save run metadata
 # --------------------------
-PIPELINE_NAME = pipeline_config["pipeline"]["name"]
-PIPELINE_TIMEZONE = pipeline_config.get("timezone", "UTC")
-
 run_metadata = {
     "run_id": run_id,
     "timestamp_utc": utc_now_iso(),
@@ -296,18 +273,18 @@ run_metadata = {
     "env": {
         "ENV": ENV,
         "DEBUG": DEBUG,
-        "BRONZE_PATH": BRONZE_PATH,
+        "LANDING_PATH": LANDING_PATH,
         "LOG_PATH": LOG_PATH,
         "DOWNLOAD_TIMEOUT": DOWNLOAD_TIMEOUT,
         "MAX_RETRIES": MAX_RETRIES,
         "RETRY_BACKOFF": RETRY_BACKOFF
     },
-    "source_config": source  # directly dump the dict from sources.yaml
+    "source_config": source
 }
 
 metadata_file = runs_dir / f"run_{run_id}.yaml"
 with open(metadata_file, "w") as f:
     yaml.dump(run_metadata, f, sort_keys=False)
 
-logger.info(f"Bronze ingestion run complete: {run_id}")
+logger.info(f"Landing ingestion run complete: {run_id}")
 logger.info(f"Metadata saved to {metadata_file}")
