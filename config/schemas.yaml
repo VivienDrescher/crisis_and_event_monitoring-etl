@@ -45,17 +45,38 @@ schemas:
         - longitude
 
     gdelt:
-      primary_key: GlobalEventID
+
+      transform_name: silver_standard_v1
+
+      rename_columns:
+          GLOBALEVENTID: event_id
+          SQLDATE: event_at
+          Actor1Name: actor1_name
+          Actor2Name: actor2_name
+          NumMentions: num_mentions
+          NumSources: num_sources 
+          NumArticles: num_articles
+          AvgTone: avg_tone 
+          
+      required_columns: 
+        - event_id
+        - event_at
+
+      primary_key: 
+        - event_id
+
+      timestamp_column: event_at
 
       dtypes:
-        GlobalEventID: int
-        SQLDATE: date
-        Actor1CountryCode: string
-        EventCode: string
+        event_id: string
+        event_at: datetime64[ns]
+        actor1_name: string
+        actor2_name: string
+        num_mentions: int64
+        num_sources: int64
+        num_articles: int64
+        avg_tone: float64
 
-      constraints:
-        SQLDATE:
-          min: 1979-01-01
 
   gold: 
 

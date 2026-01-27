@@ -5,6 +5,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# bronze 
 def download_and_extract(url: str, target_path: Path, expected_suffix: str, timeout: int = 60) -> Path:
     response = requests.get(url, timeout=timeout)
     response.raise_for_status()
