@@ -14,3 +14,9 @@ data/silver/
 
 # OS
 .DS_Store
+
+# Logs
+*.log
+
+# Pipeline run metadata
+data/_runs/

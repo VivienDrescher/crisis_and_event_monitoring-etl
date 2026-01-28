@@ -5,12 +5,11 @@ from pathlib import Path
 from datetime import datetime, timezone
 import sys 
 
-from src.utils.env import load_env
-from src.utils.logging import setup_logger
-from src.utils.io import read_parquet, write_parquet
-from src.utils.dates import utc_now_iso
-from src.utils.metadata import save_run_metadata
-from src.silver.transforms_standard import process_bronze_to_silver
+from src.common_utils.env import load_env
+from src.common_utils.logging import setup_logger, PrefixedLogger
+from src.common_utils.parquet import read_parquet, write_parquet
+from src.common_utils.run_metadata import save_run_metadata
+from src.silver.transforms.standard import process_bronze_to_silver
 
 # --------------------------
 # Load environment variables
@@ -100,23 +99,24 @@ pipeline_end_date = datetime.strptime(pipeline_config["pipeline"]["execution"]["
 # Process files 
 # --------------------------
 processed_files = []
+prefixed_logger = PrefixedLogger(logger, prefix="    ")
 
 for bronze_file in bronze_dir.glob("*.parquet"):
     logger.info(f"Processing {bronze_file.name}")
 
-    df = read_parquet(bronze_file)
+    df = read_parquet(bronze_file, logger=prefixed_logger)
 
     df_silver = process_bronze_to_silver(
         df=df,
         source_name=source_name,
         silver_schema=silver_schema,
         bronze_file_name=str(bronze_file),
-        run_id=run_id,
-        logger=logger
+        silver_run_id=run_id,
+        logger=prefixed_logger
     )
 
     silver_file = silver_dir / bronze_file.name
-    write_parquet(df_silver, silver_file)
+    write_parquet(df_silver, silver_file, logger=prefixed_logger)
 
     processed_files.append(silver_file.name)
 
