@@ -22,7 +22,7 @@ def transform_gdelt(df: pd.DataFrame, logger: Optional[logging.Logger] = None) -
     df = df.copy()
 
     if "event_at" not in df.columns:
-        logger.warning("[transform_gdelt] Column 'event_at' not found; skipping transformation")
+        logger.warning("[custom_transform_gdelt] Column 'event_at' not found; skipping transformation")
         return df
 
     try:
@@ -34,11 +34,11 @@ def transform_gdelt(df: pd.DataFrame, logger: Optional[logging.Logger] = None) -
         )
         num_missing = df["event_at"].isna().sum()
         if num_missing > 0:
-            logger.warning(f"[transform_gdelt] {num_missing} 'event_at' values could not be parsed and became NaT")
+            logger.warning(f"[custom_transform_gdelt] {num_missing} 'event_at' values could not be parsed and became NaT")
         else:
-            logger.info("[transform_gdelt] 'event_at' successfully converted to datetime")
+            logger.info("[custom_transform_gdelt] 'event_at' successfully converted to datetime")
     except Exception as e:
-        logger.exception("[transform_gdelt] Failed to transform 'event_at'")
+        logger.exception("[custom_transform_gdelt] Failed to transform 'event_at'")
         raise
 
     return df

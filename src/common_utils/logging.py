@@ -94,5 +94,4 @@ def setup_logger(
         ))
         logger.addHandler(console_handler)
 
-    logger.info(f"[setup_logger] Logger '{name}' initialized at level {logging.getLevelName(level)}")
     return logger, log_file

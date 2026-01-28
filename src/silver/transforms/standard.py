@@ -128,7 +128,7 @@ def enforce_schema(
         schema_dtypes: Dictionary mapping column names to desired dtypes
         logger: Optional logger for warnings
 
-    Returns:
+    Returns
         pd.DataFrame with columns casted to schema types
     """
     df = df.loc[:, df.columns.intersection(schema_dtypes.keys())].copy()
@@ -147,41 +147,8 @@ def enforce_schema(
                 df[col] = df[col].astype(dtype)
         except Exception as e:
             raise ValueError(f"[enforce_schema] Failed casting column '{col}' to {dtype}") from e
-
-    return df
-
-
-def parse_dates(
-    df: pd.DataFrame,
-    columns: Iterable[str],
-    logger: Optional[logging.Logger] = None,
-) -> pd.DataFrame:
-    """
-    Parse specified columns as UTC-aware datetime64[ns] columns.
-
-    Notes:
-        - Invalid or unparsable values are coerced to NaT.
-        - Columns already of datetime dtype are left unchanged.
-        - Missing columns are skipped with a warning if logger is provided.
-        - Returns a copy; does not mutate the original df.
-
-    Args:
-        df: Input DataFrame
-        columns: Iterable of column names to parse as datetime
-        logger: Optional logger for warnings
-
-    Returns:
-        pd.DataFrame with specified columns parsed as datetime64[ns, UTC]
-    """
-    logger = logger or logging.getLogger(__name__)
-    df = df.copy()
-
-    for col in columns:
-        if col not in df.columns:
-            logger.warning(f"[parse_dates] Column '{col}' missing; skipping")
-            continue
-        if not pd.api.types.is_datetime64_any_dtype(df[col]):
-            df[col] = pd.to_datetime(df[col], errors="coerce", utc=True)
+    
+    logger.info(f"[enforce_schema] Enforced datatypes and dropped columns missing a dtype specification")
 
     return df
 
@@ -217,11 +184,6 @@ def apply_custom_transform(
     # Pass the logger if the function accepts it
     try:
         df = transform_func(df, logger=logger)
-        logger.info(f"[apply_custom_transform] Applied custom transform '{transform_name}'")
-    except TypeError:
-        # Function does not accept logger → fallback
-        df = transform_func(df)
-        logger.info(f"[apply_custom_transform] Applied custom transform '{transform_name}' (no logger passed)")
     except Exception as e:
         logger.exception(f"[apply_custom_transform] Failed to apply custom transform '{transform_name}'")
         raise
@@ -270,15 +232,10 @@ def process_bronze_to_silver(
     # 3. Normalize strings
     df = normalize_strings(df, logger)
 
-    # 4. Parse datetime columns
-    event_col = silver_schema.get("event_time_column")
-    if event_col:
-        df = parse_dates(df, [event_col], logger)
-
-    # 5. Enforce schema
+    # 4. Enforce schema
     df = enforce_schema(df, silver_schema.get("dtypes"), logger)
 
-    # 6. Add Silver metadata
+    # 5. Add Silver metadata
     df = add_silver_metadata(
         df,
         source_name=source_name,

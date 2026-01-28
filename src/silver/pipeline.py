@@ -76,6 +76,8 @@ if source_name not in schemas_config["schemas"]["silver"]:
     raise ValueError(f"No Silver schema defined for {source_name}")
 
 silver_schema = schemas_config["schemas"]["silver"][source_name]
+logger.info(source_name)
+logger.info(silver_schema)
 
 # --------------------------
 # Prepare directories
@@ -99,7 +101,14 @@ pipeline_end_date = datetime.strptime(pipeline_config["pipeline"]["execution"]["
 # Process files 
 # --------------------------
 processed_files = []
-prefixed_logger = PrefixedLogger(logger, prefix="    ")
+prefixed_logger = PrefixedLogger(logger)
+
+logger.info(f"Starting silver pipeline for source {source_name}")
+
+# Exit immediately if no parquet files to process
+if not any(bronze_dir.glob("*.parquet")):
+    logger.info("No parquet files to process. Exiting.")
+    sys.exit(0)
 
 for bronze_file in bronze_dir.glob("*.parquet"):
     logger.info(f"Processing {bronze_file.name}")
@@ -137,4 +146,4 @@ metadata_file = save_run_metadata(
     output_dir=silver_dir
 )
 
-logger.info(f"Silver ingestion complete: {run_id}, metadata saved to {metadata_file}")
+logger.info(f"Silver pipeline complete: {run_id}, metadata saved to {metadata_file}")
