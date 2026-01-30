@@ -19,30 +19,30 @@ schemas:
   silver:
 
     acled:
-      primary_key: event_id_cnty
+      transform_name: silver_standard_v1
+
+      rename_columns:
+          COUNTRY: country
+          MONTH: month
+          YEAR: year
+          EVENTS: num_events
+          
+      required_columns: 
+        - country
+        - month
+        - year
+        - num_events
+
+      primary_key: 
+        - country
+        - month 
+        - year
 
       dtypes:
-        event_id_cnty: string
-        event_date: date
         country: string
-        event_type: string
-        fatalities: int
-        latitude: float
-        longitude: float
-
-      constraints:
-        fatalities:
-          min: 0
-        latitude:
-          min: -90
-          max: 90
-        longitude:
-          min: -180
-          max: 180
-
-      allow_nulls:
-        - latitude
-        - longitude
+        month: string 
+        year: int64
+        num_events: int64
 
     gdelt:
 
@@ -50,7 +50,7 @@ schemas:
 
       rename_columns:
           GLOBALEVENTID: event_id
-          SQLDATE: event_at
+          SQLDATE: event_date
           Actor1Name: actor1_name
           Actor2Name: actor2_name
           NumMentions: num_mentions
@@ -60,22 +60,25 @@ schemas:
           
       required_columns: 
         - event_id
-        - event_at
+        - event_date
 
       primary_key: 
         - event_id
 
-      timestamp_column: event_at
+      partition_key: 
+        - event_date 
 
       dtypes:
         event_id: string
-        event_at: datetime64[ns]
+        event_date: datetime64[ns]
         actor1_name: string
         actor2_name: string
         num_mentions: int64
         num_sources: int64
         num_articles: int64
         avg_tone: float64
+
+      record_timestamp: _bronze_ingested_at
 
 
   gold: 

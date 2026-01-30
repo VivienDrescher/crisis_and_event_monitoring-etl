@@ -38,7 +38,7 @@ def add_bronze_metadata(
     logger = logger or logging.getLogger(__name__)
     df = df.copy()
 
-    df["_ingested_at"] = utc_now_iso()
+    df["_bronze_ingested_at"] = utc_now_iso()
     df["_source"] = source_name
     df["_source_file"] = source_file
     if source_url:

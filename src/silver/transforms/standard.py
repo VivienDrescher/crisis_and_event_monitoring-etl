@@ -33,7 +33,7 @@ def deduplicate(
     df = df.copy()
     
     if not primary_key:
-        logger.info("[deduplicate] No primary key provided; skipping deduplication")
+        logger.warning("[deduplicate] No primary key provided; skipping deduplication")
         return df
 
     valid_keys = [c for c in primary_key if c in df.columns]
@@ -45,7 +45,7 @@ def deduplicate(
         logger.warning("[deduplicate] No valid primary key columns found; skipping deduplication")
         return df
 
-    df_deduped = df.drop_duplicates(subset=valid_keys)
+    df_deduped = df.drop_duplicates(subset=valid_keys, keep="last")
     logger.info(f"[deduplicate] Dropped {len(df) - len(df_deduped)} duplicate rows using keys {valid_keys}")
     return df_deduped
 
@@ -222,6 +222,7 @@ def process_bronze_to_silver(
     df = df.copy()
 
     bronze_run_id = df["_run_id"].iloc[0] if "_run_id" in df.columns else None
+    bronze_ingested_at = df["_bronze_ingested_at"].iloc[0] if "_bronze_ingested_at" in df.columns else None
 
     # 1. Rename
     df = apply_column_renames(df, silver_schema.get("rename_columns"), logger)
@@ -241,6 +242,7 @@ def process_bronze_to_silver(
         source_name=source_name,
         bronze_file=bronze_file_name,
         bronze_run_id=bronze_run_id,
+        bronze_ingested_at = bronze_ingested_at,
         silver_run_id=silver_run_id,
         transform_standard_name=silver_schema.get("transform_name"),
         transform_custom_name=transform_custom_name,

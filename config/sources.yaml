@@ -4,8 +4,7 @@ sources:
     enabled: true
     type: manual_drop
     update_frequency: irregular
-    retention_policy: append_only
-    latest_file_only: true
+    retention_policy: latest_file_only
 
     path_template:
       base_url: "https://acleddata.com/system/files"

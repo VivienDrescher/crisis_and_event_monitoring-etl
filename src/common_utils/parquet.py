@@ -26,7 +26,7 @@ def read_parquet(
     """
     logger = logger or logging.getLogger(__name__)
     df = pd.read_parquet(file_path, columns=columns, filters=filters)
-    logger.info(f"[read_parquet] Read {len(df)} rows with {len(df.columns)} columns")
+    logger.info(f"[read_parquet] Read {len(df)} rows with {len(df.columns)} columns from {file_path}")
     return df
 
 

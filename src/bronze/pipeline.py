@@ -68,6 +68,7 @@ logger, log_file = setup_logger(
     log_level=LOG_LEVEL,
     log_config=logging_config
 )
+prefixed_logger = PrefixedLogger(logger)
 
 # --------------------------
 # Validate source + schema 
@@ -81,7 +82,6 @@ if not source.get("enabled", True):
     sys.exit()
 
 source_type = source.get("type", "manual_drop")
-latest_file_only = source.get("latest_file_only", False)
 retention_policy = source.get("retention_policy", "append_only")
 table_params = source.get("table_params", {})
 
@@ -106,7 +106,6 @@ pipeline_end_date = datetime.strptime(pipeline_config["pipeline"]["execution"]["
 # --------------------------
 current_date = pipeline_end_date
 downloaded_files = []
-prefixed_logger = PrefixedLogger(logger)
 
 logger.info(f"Starting bronze pipeline for source {source_name}")
 
@@ -137,7 +136,6 @@ if source_type=="manual_drop":
                 downloaded_files=downloaded_files,
                 logger=prefixed_logger,
             )
-            found_latest_file = True
         except Exception as e:
             prefixed_logger.warning(f"Failed processing {file_path.name}: {e}")
             if DEBUG:
@@ -176,7 +174,7 @@ elif source_type=="automated_download":
         if retention_policy == "append_only" and bronze_output_path.exists():
             prefixed_logger.info(f"[Append-only retention policy] Skipping {bronze_output_path} -> File already exists")
             current_date -= timedelta(days=1)
-            if latest_file_only:
+            if retention_policy=="latest_file_only":
                 skip_download_loop = True
             continue
 
@@ -199,7 +197,8 @@ elif source_type=="automated_download":
                     downloaded_files=downloaded_files,
                     logger=prefixed_logger,
                 )
-                skip_download_loop = True
+                if retention_policy=="latest_file_only":
+                    skip_download_loop = True
                 break
             except Exception as e:
                 logger.warning(f"Attempt {attempt} failed: {e}")
