@@ -13,7 +13,8 @@ from src.common_utils.parquet import write_parquet
 def process_bronze_file(
     file_path: Path,
     source_name: str,
-    table_params: dict,
+    file_type: str,
+    reader_params: dict,
     required_columns: list[str],
     run_id: str,
     downloaded_files: List[str],
@@ -31,7 +32,8 @@ def process_bronze_file(
     Args:
         file_path: Path to input file
         source_name: Name of the source (e.g., 'gdelt')
-        table_params: Table-specific read parameters
+        file_type: Type of the source files (e.g. csv)
+        reader_params: Source-specific read parameters
         required_columns: List of required columns
         run_id: Current run ID
         downloaded_files: List to append processed parquet file path
@@ -43,7 +45,7 @@ def process_bronze_file(
     logger = logger or logging.getLogger(__name__)
 
     # 1. Read table
-    df = read_source_table(file_path, table_params, logger)
+    df = read_source_table(file_path, file_type, reader_params, logger)
 
     # 2. Validate columns
     validate_required_columns(df, required_columns, logger)

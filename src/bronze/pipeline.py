@@ -6,14 +6,11 @@ import argparse
 from datetime import datetime, timedelta, timezone
 import time
 
-from src.bronze.io import read_source_table, derive_bronze_output_path
-from src.bronze.metadata import add_bronze_metadata
+from src.bronze.io import derive_bronze_output_path
 from src.bronze.download_http import download_and_extract
 from src.bronze.file_processing import process_bronze_file
 from src.common_utils.env import load_env
 from src.common_utils.run_metadata import save_run_metadata
-from src.common_utils.schema_validation import validate_required_columns
-from src.common_utils.parquet import write_parquet
 from src.common_utils.logging import setup_logger, PrefixedLogger
 
 # --------------------------
@@ -83,9 +80,11 @@ if not source.get("enabled", True):
 
 source_type = source.get("type", "manual_drop")
 retention_policy = source.get("retention_policy", "append_only")
-table_params = source.get("table_params", {})
 
-required_columns = schemas_config["schemas"]["bronze"].get(source_name, {}).get("required_columns", [])
+bronze_schema = schemas_config["schemas"]["bronze"].get(source_name, {})
+source_file_type = bronze_schema.get("file_type", "csv")
+reader_params = bronze_schema.get("reader", {})
+required_columns = bronze_schema.get("required_columns", [])
 
 # --------------------------
 # Prepare directories
@@ -130,7 +129,8 @@ if source_type=="manual_drop":
             process_bronze_file(
                 file_path=file_path,
                 source_name=source_name,
-                table_params=table_params,
+                file_type=source_file_type,
+                reader_params=reader_params,
                 required_columns=required_columns,
                 run_id=run_id,
                 downloaded_files=downloaded_files,
@@ -184,14 +184,15 @@ elif source_type=="automated_download":
                 bronze_output_path_temp = download_and_extract(
                     url=url,
                     target_path=bronze_output_path_temp,
-                    expected_suffix="." + table_params.get("file_type", "csv"),
+                    expected_suffix="." + source_file_type,
                     timeout=DOWNLOAD_TIMEOUT,
                     logger=prefixed_logger,
                 )
                 process_bronze_file(
                     file_path=bronze_output_path_temp,
                     source_name=source_name,
-                    table_params=table_params,
+                    file_type=source_file_type,
+                    reader_params=reader_params,
                     required_columns=required_columns,
                     run_id=run_id,
                     downloaded_files=downloaded_files,
