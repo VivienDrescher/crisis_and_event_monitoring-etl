@@ -188,6 +188,13 @@ elif source_type=="automated_download":
                     timeout=DOWNLOAD_TIMEOUT,
                     logger=prefixed_logger,
                 )
+
+                if bronze_output_path_temp is None:
+                    prefixed_logger.info(
+                        "[File not existent] Skipping processing of non-existent source file."
+                    )
+                    break
+
                 process_bronze_file(
                     file_path=bronze_output_path_temp,
                     source_name=source_name,

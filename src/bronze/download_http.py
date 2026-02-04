@@ -13,7 +13,7 @@ def download_and_extract(
     expected_suffix: str,
     timeout: int = 60,
     logger: Optional[logging.Logger] = None
-) -> Path:
+) -> Optional[Path]:
     """
     Download a file from a URL and optionally extract if it is a ZIP archive.
 
@@ -31,11 +31,17 @@ def download_and_extract(
 
     Returns:
         Path to the downloaded (and possibly extracted) file. May differ from `target_path` if ZIP extracted.
+        Returns None if the file does not exist at the URL (404).
     """
     logger = logger or logging.getLogger(__name__)
     expected_suffix = expected_suffix.lower()
 
     response = requests.get(url, timeout=timeout)
+    if response.status_code == 404:
+        logger.info(
+            f"[download_and_extract] File not found at URL (404). Skipping download: {url}"
+        )
+        return None
     response.raise_for_status()
 
     target_path.write_bytes(response.content)
