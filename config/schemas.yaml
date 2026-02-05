@@ -91,67 +91,45 @@ schemas:
     acled:
       transform_name: silver_standard_v1
 
-      rename_columns:
-          COUNTRY: country
-          MONTH: month
-          YEAR: year
-          EVENTS: num_events
-          
-      required_columns: 
-        - country
-        - month
-        - year
-        - num_events
-
-      primary_key: 
-        - country
-        - month 
-        - year
-
-      dtypes:
-        country: string
-        month: string 
-        year: int64
-        num_events: int64
+      columns:
+        country:    { source: COUNTRY, type: string, nullable: false, primary_key: true }
+        month:      { source: MONTH, type: string, nullable: false, primary_key: true }
+        year:       { source: YEAR, type: int, nullable: false, primary_key: true }
+        num_events: { source: EVENTS, type: int, nullable: false }
 
     gdelt:
 
       transform_name: silver_standard_v1
 
-      rename_columns:
-          GLOBALEVENTID: event_id
-          SQLDATE: event_date
-          Actor1Name: actor1_name
-          Actor2Name: actor2_name
-          NumMentions: num_mentions
-          NumSources: num_sources 
-          NumArticles: num_articles
-          AvgTone: avg_tone 
-          
-      required_columns: 
-        - event_id
-        - event_date
-
-      primary_key: 
-        - event_id
-
-      partition_key: 
-        - event_date 
-
-      dtypes:
-        event_id: string
-        event_date: datetime64[ns]
-        actor1_name: string
-        actor2_name: string
-        num_mentions: int64
-        num_sources: int64
-        num_articles: int64
-        avg_tone: float64
+      columns: 
+        event_id:     { source: GLOBALEVENTID, type: string, nullable: false, primary_key: true }
+        event_date:   { source: SQLDATE, type: "datetime64[ns]", nullable: false, partition_key: true }
+        actor1_name:  { source: Actor1Name, type: string }
+        actor2_name:  { source: Actor2Name, type: string }
+        num_mentions: { source: NumMentions, type: int64 }
+        num_sources:  { source: NumSources, type: int64 }
+        num_articles: { source: NumArticles, type: int64 }
+        avg_tone:     { source: AvgTone, type: float64 }
 
       record_timestamp: _bronze_ingested_at
 
-
   gold: 
+
+    gdelt_daily_country_metrics:
+      source: gdelt
+      grain:
+        - event_date
+        - country_code
+
+      dimensions:
+        event_date: { type: date }
+        country_code: { type: string }
+
+      metrics:
+        num_events: { type: int }
+        avg_tone_mean: { type: float }
+        avg_tone_min: { type: float }
+        avg_tone_max: { type: float }
 
     crisis_event_activity:
       description: >
@@ -178,4 +156,3 @@ schemas:
             - acled
           metrics:
             total_fatalities: sum
-

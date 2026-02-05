@@ -168,9 +168,10 @@ elif retention_policy=="overwrite":
     logger.info(f"[overwrite] Deleted all existing Silver data")
 
     # Validate schema requirements 
-    primary_key = silver_schema.get("primary_key", [])
+    column_schema = silver_schema.get("columns")
+    primary_key = primary_key = [col for col, spec in column_schema.items() if spec.get("primary_key", False)]
     record_timestamp = silver_schema.get("record_timestamp")
-    partition_key = silver_schema.get("partition_key")
+    partition_key = primary_key = [col for col, spec in column_schema.items() if spec.get("partition_key", False)]
 
     if not primary_key or not record_timestamp or not partition_key:
         raise ValueError(
@@ -263,13 +264,14 @@ elif retention_policy=="append_only":
     logger.info("Retention policy: append_only")
 
     # Validate schema requirements 
-    primary_key = silver_schema.get("primary_key", [])
+    column_schema = silver_schema.get("columns")
+    primary_key = [col for col, spec in column_schema.items() if spec.get("primary_key", False)]
     record_timestamp = silver_schema.get("record_timestamp")
-    partition_key = silver_schema.get("partition_key")
+    partition_key = [col for col, spec in column_schema.items() if spec.get("partition_key", False)]
 
     if not primary_key or not record_timestamp or not partition_key:
         raise ValueError(
-            "Overwrite sources must define "
+            "Append-only sources must define "
             "'primary_key', 'record_timestamp', and 'partition_key' in silver schema"
         )
 

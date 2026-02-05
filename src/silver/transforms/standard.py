@@ -80,8 +80,7 @@ def normalize_strings(df: pd.DataFrame, logger: Optional[logging.Logger] = None)
 
 def apply_column_renames(
     df: pd.DataFrame,
-    rename_map: Optional[Dict[str, str]] = None,
-    logger: Optional[logging.Logger] = None
+    columns_schema: dict,
 ) -> pd.DataFrame:
     """
     Rename columns according to a provided mapping.
@@ -89,23 +88,19 @@ def apply_column_renames(
     Notes:
         - Columns in rename_map that do not exist in df are ignored.
         - Returns a copy; original df is not mutated.
-        - Logs a warning for any missing columns if a logger is provided.
 
     Args:
         df: Input DataFrame
-        rename_map: Dictionary mapping old column names to new column names
-        logger: Optional logger for warnings
+        columns_schema: Silver schema definition including source column names
 
     Returns:
         pd.DataFrame with columns renamed
     """
-    if not rename_map:
-        return df
-
-    missing = [c for c in rename_map if c not in df.columns]
-    if missing and logger:
-        logger.warning(f"[apply_column_renames] Rename map contains missing columns: {missing}")
-
+    rename_map = {
+        spec["source"]: col_name
+        for col_name, spec in columns_schema.items()
+        if "source" in spec
+    }
     return df.rename(columns=rename_map)
 
 
@@ -220,12 +215,13 @@ def process_bronze_to_silver(
     logger = logger or logging.getLogger(__name__)
 
     df = df.copy()
+    column_schema = silver_schema.get("columns")
 
     bronze_run_id = df["_run_id"].iloc[0] if "_run_id" in df.columns else None
     bronze_ingested_at = df["_bronze_ingested_at"].iloc[0] if "_bronze_ingested_at" in df.columns else None
 
     # 1. Rename
-    df = apply_column_renames(df, silver_schema.get("rename_columns"), logger)
+    df = apply_column_renames(df, silver_schema.get("columns"))
 
     # 2. Custom transformation
     df, transform_custom_name = apply_custom_transform(df, source_name, logger)
@@ -234,7 +230,8 @@ def process_bronze_to_silver(
     df = normalize_strings(df, logger)
 
     # 4. Enforce schema
-    df = enforce_schema(df, silver_schema.get("dtypes"), logger)
+    schema_dtypes = { col: spec["type"] for col, spec in column_schema.items() if "type" in spec}
+    df = enforce_schema(df, schema_dtypes, logger)
 
     # 5. Add Silver metadata
     df = add_silver_metadata(
@@ -250,12 +247,12 @@ def process_bronze_to_silver(
     )
 
     # 7. Validate schema
-    required_cols = silver_schema.get("required_columns", [])
+    required_cols = [col for col, spec in column_schema.items() if spec.get("nullable") is False]
     validate_required_columns(df, required_cols, logger)
     validate_required_columns_not_null(df, required_cols, logger)
 
     # 8. Deduplicate
-    primary_key = silver_schema.get("primary_key")
+    primary_key = [col for col, spec in column_schema.items() if spec.get("primary_key", False)]
     if primary_key:
         df = deduplicate(df, primary_key, logger)
 
