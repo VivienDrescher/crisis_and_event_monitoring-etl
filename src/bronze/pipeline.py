@@ -3,15 +3,20 @@ import sys
 from pathlib import Path
 import yaml
 import argparse
-from datetime import datetime, timedelta, timezone
-import time
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
-from src.bronze.io import derive_bronze_output_path
-from src.bronze.download_http import download_and_extract
 from src.bronze.file_processing import process_bronze_file
+
+from src.common_utils.path import replace_path_suffix
+from src.common_utils.io import download_file_from_url
+from src.common_utils.time import get_date_range
 from src.common_utils.env import load_env
 from src.common_utils.run_metadata import save_run_metadata
+from src.common_utils.retry import with_retries
 from src.common_utils.logging import setup_logger, PrefixedLogger
+
+LAYER_NAME = "bronze"
 
 # --------------------------
 # Load environment variables
@@ -22,6 +27,7 @@ ENV = os.getenv("ENV", "local").lower()
 DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
+LANDING_PATH = os.getenv("LANDING_PATH", "data/landing")
 BRONZE_PATH = os.getenv("BRONZE_PATH", "data/bronze")
 LOG_PATH = os.getenv("LOG_PATH", "logs")
 CONFIG_PATH = os.getenv("CONFIG_PATH", "config")
@@ -29,16 +35,6 @@ CONFIG_PATH = os.getenv("CONFIG_PATH", "config")
 DOWNLOAD_TIMEOUT = int(os.getenv("DOWNLOAD_TIMEOUT", 60))
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", 3))
 RETRY_BACKOFF = int(os.getenv("RETRY_BACKOFF", 5))
-
-# --------------------------
-# CLI arguments
-# --------------------------
-parser = argparse.ArgumentParser(description="Bronze ETL ingestion")
-parser.add_argument("--table", type=str, required=True, help="Name of bronze table, e.g., gdelt")
-args = parser.parse_args()
-table_name = args.table.lower()
-
-run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
 # --------------------------
 # Load configs
@@ -54,6 +50,18 @@ logging_config = load_yaml(Path(CONFIG_PATH) / "logging.yaml")
 
 PIPELINE_NAME = pipeline_config["pipeline"]["name"]
 PIPELINE_TIMEZONE = pipeline_config.get("timezone", "UTC")
+timezone = ZoneInfo(PIPELINE_TIMEZONE)
+
+# --------------------------
+# CLI arguments
+# --------------------------
+parser = argparse.ArgumentParser(description="Bronze ETL ingestion")
+parser.add_argument("--table", type=str, required=True, help="Name of bronze table, e.g., gdelt")
+args = parser.parse_args()
+table_name = args.table.lower()
+
+run_start_time = datetime.now(tz=timezone)
+run_id = run_start_time.strftime("%Y%m%d_%H%M%S")
 
 # --------------------------
 # Setup logging
@@ -73,170 +81,157 @@ prefixed_logger = PrefixedLogger(logger)
 if table_name not in sources_config["sources"]:
     raise ValueError(f"Source {table_name} not found in sources.yaml")
 
-source = sources_config["sources"][table_name]
-if not source.get("enabled", True):
+source_config = sources_config["sources"][table_name]
+if not source_config.get("enabled", True):
     logger.info(f"Source {table_name} is disabled. Skipping.")
     sys.exit()
+source_type = source_config.get("type")
+retention_policy = source_config.get("retention_policy")
 
-source_type = source.get("type", "manual_drop")
-retention_policy = source.get("retention_policy", "append_only")
-
-bronze_schema = schemas_config["schemas"]["bronze"].get(table_name, {})
-source_file_type = bronze_schema.get("file_type", "csv")
-reader_params = bronze_schema.get("reader", {})
-required_columns = bronze_schema.get("required_columns", [])
+bronze_schema = schemas_config["schemas"][LAYER_NAME].get(table_name, {})
 
 # --------------------------
 # Prepare directories
 # --------------------------
-bronze_dir = Path(BRONZE_PATH) / table_name
-bronze_dir.mkdir(parents=True, exist_ok=True)
-runs_dir = bronze_dir / "_runs"
-runs_dir.mkdir(exist_ok=True)
+landing_dir = Path(LANDING_PATH) / table_name
+landing_dir.mkdir(parents=True, exist_ok=True)
+
+bronze_output_dir = Path(BRONZE_PATH) / table_name
+bronze_output_dir.mkdir(parents=True, exist_ok=True)
+
+runs_output_dir = bronze_output_dir / "_runs"
+runs_output_dir.mkdir(exist_ok=True)
 
 # --------------------------
 # Pipeline date range
 # --------------------------
-pipeline_start_date = datetime.strptime(pipeline_config["pipeline"]["execution"]["start_date"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
-pipeline_end_date = datetime.strptime(pipeline_config["pipeline"]["execution"]["end_date"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+pipeline_start_date = datetime.strptime(pipeline_config["pipeline"]["execution"].get("start_date"), "%Y-%m-%d").replace(tzinfo=timezone)
+pipeline_end_date_str = pipeline_config["pipeline"]["execution"].get("end_date")
+if pipeline_end_date_str: 
+    pipeline_end_date = datetime.strptime(pipeline_end_date_str, "%Y-%m-%d").replace(tzinfo=timezone)
+else:
+    pipeline_end_date = datetime.now(tz=timezone)
 
 # --------------------------
-# Main download loop
+# Bronze Processing 
 # --------------------------
-current_date = pipeline_end_date
-downloaded_files = []
+processed_input_files = []
+processed_output_files = []
+num_skipped_existent = 0
+num_skipped_nonexistent = 0
 
-logger.info(f"Starting bronze pipeline for source {table_name}")
+logger.info(f"Starting bronze pipeline for table {table_name}")
 
-# --------------------------
-# Source type: Manual drop 
-# --------------------------
-if source_type=="manual_drop":
-    
-    # Process all non-parquet files in folder
-    folder_path = bronze_dir
-    files_to_process = [f for f in folder_path.iterdir() if f.is_file() and f.suffix.lower() != ".parquet"]
+if source_type == "manual_drop":
 
-    if not files_to_process:
-        logger.info(f"No non-parquet files to process in manual_drop folder: {folder_path}. Exiting")
-        sys.exit(0)
+    input_files = sorted(f for f in landing_dir.iterdir() if f.is_file())
 
-    for file_path in files_to_process:
-        try:
+    for input_path in input_files:
+        bronze_output_path = replace_path_suffix(bronze_output_dir / input_path.name, ".parquet")
 
-            logger.info(f"Processing {file_path.name}")
-            
-            process_bronze_file(
-                file_path=file_path,
-                source_name=table_name,
-                file_type=source_file_type,
-                reader_params=reader_params,
-                required_columns=required_columns,
-                run_id=run_id,
-                downloaded_files=downloaded_files,
+        if retention_policy == "append_only" and bronze_output_path.exists():
+            prefixed_logger.info("[Skipping file] append_only and output already exists")
+            num_skipped_existent += 1
+            continue 
+
+        output = process_bronze_file(
+            input_path=input_path,
+            output_path=bronze_output_path,
+            table_name=table_name,
+            source_config=source_config,
+            table_schema=bronze_schema,
+            run_id=run_id,
+            logger=prefixed_logger,
+        )
+
+        if output:
+            processed_input_files.append(input_path)
+            processed_output_files.append(output)
+
+elif source_type == "automated_download":
+
+    filename_pattern = source_config["path_template"]["filename_pattern"]
+    base_url = source_config["path_template"]["base_url"]
+
+    file_candidates = []
+
+    for d in get_date_range(pipeline_start_date, pipeline_end_date):
+        filename = filename_pattern.format(
+            year=d.year,
+            month=d.month,
+            day=d.day,
+        )
+        file_candidates.append(
+            (f"{base_url}/{filename}", landing_dir / filename)
+        )
+
+    logger.info(f"Iterating over {len(file_candidates)} potential input files in the pipeline date range.")
+
+    for file_count, (url, landing_path) in enumerate(file_candidates, start=1):
+
+        logger.info(f"Processing file for date {file_count}/{len(file_candidates)}: {landing_path.name}")
+
+        bronze_output_path = replace_path_suffix(bronze_output_dir / landing_path.name, ".parquet")
+        if retention_policy == "append_only" and bronze_output_path.exists():
+            prefixed_logger.info("[Skipping file] append_only and output already exists")
+            num_skipped_existent += 1
+            continue 
+
+        def attempt():
+            exists = download_file_from_url(
+                url=url,
+                target_path=landing_path,
+                timeout=DOWNLOAD_TIMEOUT,
                 logger=prefixed_logger,
             )
-        except Exception as e:
-            prefixed_logger.warning(f"Failed processing {file_path.name}: {e}")
-            if DEBUG:
-                raise
+            if not exists:
+                prefixed_logger.info("[File not existent] Skipping")
+                return None
+            
+            return process_bronze_file(
+                input_path=landing_path,
+                output_path=bronze_output_path,
+                table_name=table_name,
+                source_config=source_config,
+                table_schema=bronze_schema,
+                run_id=run_id,
+                logger=prefixed_logger,
+            )
 
-# --------------------------
-# Source type: Automated download 
-# --------------------------
-elif source_type=="automated_download":
+        output = with_retries(
+            attempt,
+            max_retries=MAX_RETRIES,
+            backoff=RETRY_BACKOFF if not DEBUG else 1,
+            logger=logger,
+        )
 
-    skip_download_loop = False 
-
-    # Backwards iteration over the pipeline date range 
-    while current_date >= pipeline_start_date:
-
-        # Exit download loop if the source requires only the latest file and it was downloaded already 
-        if skip_download_loop:
-            logger.info(f"Exiting download loop. All required files processed.")
-            break
-
-        # Determine filename based on filename pattern
-        filename_pattern = source["path_template"].get("filename_pattern")
-        if table_name == "gdelt":
-            filename = filename_pattern.format(year=current_date.year, month=current_date.month, day=current_date.day)
-        else:
-            raise NotImplementedError(f"Filename pattern logic not defined for {table_name}")
+        if output:
+            processed_input_files.append(landing_path)
+            processed_output_files.append(output)
         
-        logger.info(f"Processing {filename}")
+        else: 
+            num_skipped_nonexistent += 1 
 
-        # Construct relevant url and paths 
-        url = f"{source['path_template']['base_url']}/{filename}"
-        bronze_output_path_temp = bronze_dir / filename
-        bronze_output_path = derive_bronze_output_path(bronze_output_path_temp)
-
-        # Skip if append_only & file exists
-        if retention_policy == "append_only" and bronze_output_path.exists():
-            prefixed_logger.info(f"[Append-only retention policy] Skipping {bronze_output_path} -> File already exists")
-            current_date -= timedelta(days=1)
-            if retention_policy=="latest_file_only":
-                skip_download_loop = True
-            continue
-
-        for attempt in range(1, MAX_RETRIES + 1):
-            try:
-                # Download + extract
-                bronze_output_path_temp = download_and_extract(
-                    url=url,
-                    target_path=bronze_output_path_temp,
-                    expected_suffix="." + source_file_type,
-                    timeout=DOWNLOAD_TIMEOUT,
-                    logger=prefixed_logger,
-                )
-
-                if bronze_output_path_temp is None:
-                    prefixed_logger.info(
-                        "[File not existent] Skipping processing of non-existent source file."
-                    )
-                    break
-
-                process_bronze_file(
-                    file_path=bronze_output_path_temp,
-                    table_name=table_name,
-                    file_type=source_file_type,
-                    reader_params=reader_params,
-                    required_columns=required_columns,
-                    run_id=run_id,
-                    downloaded_files=downloaded_files,
-                    logger=prefixed_logger,
-                )
-                if retention_policy=="latest_file_only":
-                    skip_download_loop = True
-                break
-            except Exception as e:
-                logger.warning(f"Attempt {attempt} failed: {e}")
-                if attempt < MAX_RETRIES:
-                    time.sleep(RETRY_BACKOFF if not DEBUG else 1)
-                else:
-                    raise
-        current_date -= timedelta(days=1)
-
-# --------------------------
-# Source type: Unknown 
-# --------------------------
 else:
-    raise NotImplementedError(f"Source type {source_type} not implemented.") 
+    raise NotImplementedError(f"Source type {source_type} not implemented")
+
+logger.info(f"Pipeline complete. {len(processed_output_files)} files written. {num_skipped_existent} already existing. {num_skipped_nonexistent} nonexistent.")
 
 # --------------------------
 # Save run metadata
 # --------------------------
 metadata_file = save_run_metadata(
+    run_output_dir=runs_output_dir,
     run_id=run_id,
-    pipeline_name=PIPELINE_NAME,
-    pipeline_timezone=PIPELINE_TIMEZONE,
-    layer="bronze",
-    input_name=table_name,
-    pipeline_start_date=pipeline_start_date,
-    pipeline_end_date=pipeline_end_date,
+    layer=LAYER_NAME,
+    table_name=table_name,
     log_file=log_file,
-    processed_files=downloaded_files,
-    source_config=source,
-    output_dir=bronze_dir
+    pipeline_config=pipeline_config,
+    schema_config=schemas_config,
+    input_files=processed_input_files,
+    output_files=processed_output_files, 
+    source_configs=source_config,
+    start_time=run_start_time
 )
 
-logger.info(f"Bronze pipeline complete: {run_id}, metadata saved to {metadata_file}")
+logger.info(f"Saved run metadata: {metadata_file}")

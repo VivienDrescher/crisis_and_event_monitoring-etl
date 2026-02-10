@@ -17,19 +17,19 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def date_range_utc(start_date, end_date):
-    date_range = []
-    current = start_date
+# def date_range_utc(start_date, end_date):
+#     date_range = []
+#     current = start_date
 
-    while current <= end_date:
-        dt = current.astimezone(timezone.utc)
-        date_range.append((dt.isoformat(sep=" ", timespec="seconds"),))
-        current += timedelta(days=1)
+#     while current <= end_date:
+#         dt = current.astimezone(timezone.utc)
+#         date_range.append((dt.isoformat(sep=" ", timespec="seconds"),))
+#         current += timedelta(days=1)
 
-    return date_range
+#     return date_range
 
 
-def date_range(
+def get_date_range(
     start_date: datetime,
     end_date: datetime,
     step: timedelta = timedelta(days=1),

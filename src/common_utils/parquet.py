@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional, Union
 import pandas as pd
+import uuid
 import logging
 
 
@@ -25,7 +26,10 @@ def read_parquet(
         pd.DataFrame
     """
     logger = logger or logging.getLogger(__name__)
+
+    file_path = Path(file_path)
     df = pd.read_parquet(file_path, columns=columns, filters=filters)
+
     logger.info(f"[read_parquet] Read {len(df)} rows with {len(df.columns)} columns from {file_path}")
     return df
 
@@ -33,8 +37,7 @@ def read_parquet(
 def write_parquet(
     df: pd.DataFrame,
     file_path: Union[str, Path],
-    write_params: dict | None = None,
-    safe_write: bool = True,
+    write_params: dict = {},
     logger: Optional[logging.Logger] = None,
 ) -> None:
     """
@@ -44,17 +47,16 @@ def write_parquet(
         df: DataFrame to write
         file_path: Target Parquet path
         write_params: Optional pandas.to_parquet parameters
-        safe_write: Use temp file + atomic replace
         logger: Optional logger
     """
     logger = logger or logging.getLogger(__name__)
-    write_params = write_params or {}
+    
+    # Determine output paths 
     file_path = Path(file_path)
-    tmp_path = file_path.with_suffix(file_path.suffix + ".tmp") if safe_write else file_path
+    tmp_path = file_path.with_suffix(file_path.suffix + f".{uuid.uuid4().hex}.tmp")
 
-    logger.info(f"[write_parquet] Writing {len(df)} rows to {tmp_path}")
+    # Safe write 
     df.to_parquet(tmp_path, index=False, **write_params)
+    tmp_path.replace(file_path)
 
-    if safe_write:
-        tmp_path.replace(file_path)
-        logger.info(f"[write_parquet] Safe write complete: {file_path}")
+    logger.info(f"[write_parquet] Safe wrote {len(df)} rows to {file_path}")

@@ -3,9 +3,8 @@ pipeline:
   timezone: UTC
 
   execution:
-    mode: backfill
+    #mode: backfill # TODO 
     start_date: "2026-01-01"
-    end_date: "2026-02-04"
 
   dimensions:
-    countries: all
+    countries: all # TODO 

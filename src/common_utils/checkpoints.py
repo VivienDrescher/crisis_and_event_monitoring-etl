@@ -8,7 +8,7 @@ import json
 
 def load_checkpoint(checkpoint_path: Path) -> Set[str]:
     """
-    Load a checkpoint file containing already processed Bronze filenames.
+    Load a checkpoint file containing already processed filenames.
     """
     if not checkpoint_path.exists():
         return set()
@@ -16,7 +16,7 @@ def load_checkpoint(checkpoint_path: Path) -> Set[str]:
     with open(checkpoint_path) as f:
         data = json.load(f)
 
-    return set(data.get("processed_bronze_files", []))
+    return set(data.get("checkpoint_files", []))
 
 
 def save_checkpoint(
@@ -24,12 +24,12 @@ def save_checkpoint(
     processed_files: Set[str],
 ) -> None:
     """
-    Persist the set of processed Bronze filenames to disk.
+    Persist the set of processed filenames to disk.
     """
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
     payload = {
-        "processed_bronze_files": sorted(processed_files),
+        "processed_files": sorted(processed_files),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -37,14 +37,14 @@ def save_checkpoint(
         json.dump(payload, f, indent=2)
 
 
-def identify_new_bronze_files(
-    bronze_files: List[Path],
-    processed_files: Set[str],
+def identify_new_files(
+    files: List[Path],
+    checkpoint_files: Set[str],
 ) -> List[Path]:
     """
-    Identify Bronze files that have not yet been processed.
+    Identify files that have not yet been processed.
     """
     return [
-        f for f in bronze_files
-        if f.name not in processed_files
+        f for f in files
+        if f.name not in checkpoint_files
     ]
