@@ -39,7 +39,7 @@ def add_bronze_metadata(
     df = df.copy()
 
     df["_bronze_ingested_at"] = utc_now_iso()
-    df["_source"] = source_name
+    df["_source_name"] = source_name
     df["_source_file"] = source_file
     if source_url:
         df["_source_url"] = source_url

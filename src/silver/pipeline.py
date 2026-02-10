@@ -14,7 +14,7 @@ from src.common_utils.checkpoints import load_checkpoint, save_checkpoint, ident
 from src.common_utils.partitions import derive_partition_columns
 from src.common_utils.run_metadata import save_run_metadata
 from src.silver.transforms.standard import process_bronze_to_silver
-from src.silver.io import read_silver_partition, write_silver_partition
+from src.common_utils.parquet_partition import read_parquet_partition, write_parquet_partition
 
 
 # --------------------------
@@ -35,9 +35,9 @@ LOG_PATH = Path(os.getenv("LOG_PATH", "logs"))
 # CLI args
 # --------------------------
 parser = argparse.ArgumentParser(description="Silver ingestion")
-parser.add_argument("--source", type=str, required=True, help="Name of the source, e.g., gdelt")
+parser.add_argument("--table", type=str, required=True, help="Name of the table, e.g., gdelt")
 args = parser.parse_args()
-source_name = args.source.lower()
+table_name = args.table.lower()
 
 run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
@@ -60,7 +60,7 @@ PIPELINE_TIMEZONE = pipeline_config.get("timezone", "UTC")
 # Setup logger 
 # --------------------------
 logger, log_file = setup_logger(
-    name=f"{PIPELINE_NAME}.silver.{source_name}",
+    name=f"{PIPELINE_NAME}.silver.{table_name}",
     log_dir=LOG_PATH,
     debug=DEBUG,
     log_level=LOG_LEVEL,
@@ -71,28 +71,28 @@ prefixed_logger = PrefixedLogger(logger)
 # --------------------------
 # Validate source + schema
 # --------------------------
-if source_name not in sources_config["sources"]:
-    raise ValueError(f"Source {source_name} not found in sources.yaml")
+if table_name not in sources_config["sources"]:
+    raise ValueError(f"Source {table_name} not found in sources.yaml")
 
-source = sources_config["sources"][source_name]
+source = sources_config["sources"][table_name]
 if not source.get("enabled", True):
-    logger.info(f"Source {source_name} is disabled. Skipping.")
+    logger.info(f"Source {table_name} is disabled. Skipping.")
     sys.exit()
 
 retention_policy = source.get("retention_policy", "append_only")
 
-if source_name not in schemas_config["schemas"]["silver"]:
-    raise ValueError(f"No Silver schema defined for {source_name}")
+if table_name not in schemas_config["schemas"]["silver"]:
+    raise ValueError(f"No Silver schema defined for {table_name}")
 
-silver_schema = schemas_config["schemas"]["silver"][source_name]
+silver_schema = schemas_config["schemas"]["silver"][table_name]
 
 # --------------------------
 # Prepare directories
 # --------------------------
-bronze_dir = Path(BRONZE_PATH) / source_name
+bronze_dir = Path(BRONZE_PATH) / table_name
 bronze_dir.mkdir(parents=True, exist_ok=True)
 
-silver_dir = SILVER_PATH / source_name
+silver_dir = SILVER_PATH / table_name
 silver_dir.mkdir(parents=True, exist_ok=True)
 
 runs_dir = silver_dir / "_runs"
@@ -116,7 +116,7 @@ if not bronze_files:
 processed_files = []
 written_files = []
 
-logger.info(f"Starting silver pipeline for source {source_name}")
+logger.info(f"Starting silver pipeline for source {table_name}")
 
 # --------------------------
 # Retention Policy: Latest file only  
@@ -141,7 +141,7 @@ if retention_policy=="latest_file_only":
     df = read_parquet(bronze_file, logger=prefixed_logger)
     df_silver = process_bronze_to_silver(
         df=df,
-        source_name=source_name,
+        table_name=table_name,
         silver_schema=silver_schema,
         bronze_file_name=str(bronze_file),
         silver_run_id=run_id,
@@ -169,9 +169,9 @@ elif retention_policy=="overwrite":
 
     # Validate schema requirements 
     column_schema = silver_schema.get("columns")
-    primary_key = primary_key = [col for col, spec in column_schema.items() if spec.get("primary_key", False)]
+    primary_key = [col for col, spec in column_schema.items() if spec.get("primary_key", False)]
     record_timestamp = silver_schema.get("record_timestamp")
-    partition_key = primary_key = [col for col, spec in column_schema.items() if spec.get("partition_key", False)]
+    partition_key  = [col for col, spec in column_schema.items() if spec.get("partition_key", False)]
 
     if not primary_key or not record_timestamp or not partition_key:
         raise ValueError(
@@ -195,7 +195,7 @@ elif retention_policy=="overwrite":
         df = read_parquet(bronze_file, logger=prefixed_logger)
         df_silver = process_bronze_to_silver(
             df=df,
-            source_name=source_name,
+            table_name=table_name,
             silver_schema=silver_schema,
             bronze_file_name=str(bronze_file),
             silver_run_id=run_id,
@@ -240,12 +240,12 @@ elif retention_policy=="overwrite":
             mask &= df_combined[col] == val
         df_partition = df_combined[mask]
 
-        partition_path = write_silver_partition(
+        partition_path = write_parquet_partition(
             df=df_partition,
-            silver_dir=silver_dir,
+            base_dir=silver_dir,
             partition_key=partition_key,
             partition_values=partition_values,
-            file_prefix=source_name,
+            file_prefix=table_name,
             logger=prefixed_logger,
         )
 
@@ -303,7 +303,7 @@ elif retention_policy=="append_only":
         df = read_parquet(bronze_file, logger=prefixed_logger)
         df_silver = process_bronze_to_silver(
             df=df,
-            source_name=source_name,
+            table_name=table_name,
             silver_schema=silver_schema,
             bronze_file_name=str(bronze_file),
             silver_run_id=run_id,
@@ -341,7 +341,7 @@ elif retention_policy=="append_only":
         df_new_part = df_new[mask]
 
         # Read the relevant silver partition for the current parition value 
-        df_existing = read_silver_partition(
+        df_existing = read_parquet_partition(
             silver_dir,
             partition_key,
             partition_values,
@@ -357,12 +357,12 @@ elif retention_policy=="append_only":
         )
 
         # Overwrite silver partition with the latest data 
-        partition_path = write_silver_partition(
+        partition_path = write_parquet_partition(
             df=df_merged,
-            silver_dir=silver_dir,
+            base_dir=silver_dir,
             partition_key=partition_key,
             partition_values=partition_values,
-            file_prefix=source_name,
+            file_prefix=table_name,
             logger=prefixed_logger,
         )
         written_files.append(partition_path.name)
@@ -384,7 +384,7 @@ metadata_file = save_run_metadata(
     pipeline_name=PIPELINE_NAME,
     pipeline_timezone=PIPELINE_TIMEZONE,
     layer="silver",
-    source_name=source_name,
+    input_name=table_name,
     pipeline_start_date=pipeline_start_date,
     pipeline_end_date=pipeline_end_date,
     log_file=log_file,

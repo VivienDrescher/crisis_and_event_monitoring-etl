@@ -10,22 +10,21 @@ import pandas as pd
 from src.common_utils.parquet import write_parquet
 from src.common_utils.partitions import build_partition_path
 
-
-def read_silver_partition(
-    silver_dir: Path,
+def read_parquet_partition(
+    base_dir: Path,
     partition_key: List[str],
     partition_values: Tuple[str, ...],
     logger: Optional[logging.Logger] = None,
 ) -> pd.DataFrame:
     """
-    Read all Parquet files belonging to a specific Silver partition.
+    Read all Parquet files belonging to a specific partition.
 
     Returns an empty DataFrame if the partition does not exist.
     """
     logger = logger or logging.getLogger(__name__)
 
     partition_path = build_partition_path(
-        silver_dir, partition_key, partition_values
+        base_dir, partition_key, partition_values
     )
 
     if not partition_path.exists():
@@ -40,16 +39,16 @@ def read_silver_partition(
     return pd.concat(dfs, ignore_index=True)
 
 
-def write_silver_partition(
+def write_parquet_partition(
     df: pd.DataFrame,
-    silver_dir: Path,
+    base_dir: Path,
     partition_key: List[str],
     partition_values: Iterable[str],
     file_prefix: str,
     logger: Optional[logging.Logger] = None,
 ) -> List[Path]:
     """
-    Safely write a single Silver partition.
+    Safely write a single partition to a Parquet file.
 
     Uses atomic write semantics:
     - write to a temp file
@@ -61,7 +60,7 @@ def write_silver_partition(
     partition_values = tuple(str(v) for v in partition_values)
 
     partition_path = build_partition_path(
-        silver_dir, partition_key, partition_values
+        base_dir, partition_key, partition_values
     )
     partition_path.mkdir(parents=True, exist_ok=True)
 

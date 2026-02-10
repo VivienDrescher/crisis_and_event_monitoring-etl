@@ -12,7 +12,7 @@ from src.common_utils.parquet import write_parquet
 
 def process_bronze_file(
     file_path: Path,
-    source_name: str,
+    table_name: str,
     file_type: str,
     reader_params: dict,
     required_columns: list[str],
@@ -31,7 +31,7 @@ def process_bronze_file(
 
     Args:
         file_path: Path to input file
-        source_name: Name of the source (e.g., 'gdelt')
+        table_name: Name of the table (e.g., 'gdelt')
         file_type: Type of the source files (e.g. csv)
         reader_params: Source-specific read parameters
         required_columns: List of required columns
@@ -53,7 +53,7 @@ def process_bronze_file(
     # 3. Add Bronze metadata
     df = add_bronze_metadata(
         df,
-        source_name=source_name,
+        source_name=table_name,
         source_file=file_path.name,
         source_url=None,  # optional for manual_drop
         run_id=run_id,

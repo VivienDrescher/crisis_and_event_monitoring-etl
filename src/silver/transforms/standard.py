@@ -6,7 +6,7 @@ import logging
 
 from src.silver.transforms.custom import CUSTOM_TRANSFORMS
 from src.silver.metadata import add_silver_metadata
-from src.common_utils.schema_validation import validate_required_columns_not_null, validate_required_columns
+from src.common_utils.schema_validation import enforce_schema, validate_required_columns_not_null, validate_required_columns
 
 
 # -------------------------------
@@ -104,50 +104,6 @@ def apply_column_renames(
     return df.rename(columns=rename_map)
 
 
-def enforce_schema(
-    df: pd.DataFrame,
-    schema_dtypes: Dict[str, str],
-    logger: Optional[logging.Logger] = None
-) -> pd.DataFrame:
-    """
-    Enforce a schema on a DataFrame by casting column types and dropping extra columns.
-
-    Notes:
-        - Only keeps columns present in schema_dtypes.
-        - Safely parses datetime columns to UTC-aware datetime64[ns, UTC].
-        - Logs warnings for missing columns if a logger is provided.
-        - Raises ValueError if casting fails.
-
-    Args:
-        df: Input DataFrame
-        schema_dtypes: Dictionary mapping column names to desired dtypes
-        logger: Optional logger for warnings
-
-    Returns
-        pd.DataFrame with columns casted to schema types
-    """
-    df = df.loc[:, df.columns.intersection(schema_dtypes.keys())].copy()
-
-    for col, dtype in schema_dtypes.items():
-        if col not in df.columns:
-            if logger:
-                logger.warning(f"[enforce_schema] Column '{col}' not found; skipping cast")
-            continue
-
-        try:
-            if "datetime" in str(dtype).lower():
-                if not pd.api.types.is_datetime64_any_dtype(df[col]):
-                    df[col] = pd.to_datetime(df[col], errors="coerce", utc=True)
-            else:
-                df[col] = df[col].astype(dtype)
-        except Exception as e:
-            raise ValueError(f"[enforce_schema] Failed casting column '{col}' to {dtype}") from e
-    
-    logger.info(f"[enforce_schema] Enforced datatypes and dropped columns missing a dtype specification")
-
-    return df
-
-
 def apply_custom_transform(
     df: pd.DataFrame,
     source_name: str,
@@ -192,7 +148,7 @@ def apply_custom_transform(
 
 def process_bronze_to_silver(
     df: pd.DataFrame,
-    source_name: str,
+    table_name: str,
     silver_schema: Dict,
     silver_run_id: str,
     bronze_file_name: str,
@@ -224,7 +180,7 @@ def process_bronze_to_silver(
     df = apply_column_renames(df, silver_schema.get("columns"))
 
     # 2. Custom transformation
-    df, transform_custom_name = apply_custom_transform(df, source_name, logger)
+    df, transform_custom_name = apply_custom_transform(df, table_name, logger)
 
     # 3. Normalize strings
     df = normalize_strings(df, logger)
@@ -236,13 +192,11 @@ def process_bronze_to_silver(
     # 5. Add Silver metadata
     df = add_silver_metadata(
         df,
-        source_name=source_name,
+        source_name=table_name,
         bronze_file=bronze_file_name,
         bronze_run_id=bronze_run_id,
         bronze_ingested_at = bronze_ingested_at,
         silver_run_id=silver_run_id,
-        transform_standard_name=silver_schema.get("transform_name"),
-        transform_custom_name=transform_custom_name,
         logger=logger
     )
 

@@ -34,9 +34,9 @@ RETRY_BACKOFF = int(os.getenv("RETRY_BACKOFF", 5))
 # CLI arguments
 # --------------------------
 parser = argparse.ArgumentParser(description="Bronze ETL ingestion")
-parser.add_argument("--source", type=str, required=True, help="Name of the source, e.g., gdelt")
+parser.add_argument("--table", type=str, required=True, help="Name of bronze table, e.g., gdelt")
 args = parser.parse_args()
-source_name = args.source.lower()
+table_name = args.table.lower()
 
 run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
@@ -59,7 +59,7 @@ PIPELINE_TIMEZONE = pipeline_config.get("timezone", "UTC")
 # Setup logging
 # --------------------------
 logger, log_file = setup_logger(
-    name=f"{PIPELINE_NAME}.silver.{source_name}",
+    name=f"{PIPELINE_NAME}.silver.{table_name}",
     log_dir=LOG_PATH, 
     debug=DEBUG,
     log_level=LOG_LEVEL,
@@ -70,18 +70,18 @@ prefixed_logger = PrefixedLogger(logger)
 # --------------------------
 # Validate source + schema 
 # --------------------------
-if source_name not in sources_config["sources"]:
-    raise ValueError(f"Source {source_name} not found in sources.yaml")
+if table_name not in sources_config["sources"]:
+    raise ValueError(f"Source {table_name} not found in sources.yaml")
 
-source = sources_config["sources"][source_name]
+source = sources_config["sources"][table_name]
 if not source.get("enabled", True):
-    logger.info(f"Source {source_name} is disabled. Skipping.")
+    logger.info(f"Source {table_name} is disabled. Skipping.")
     sys.exit()
 
 source_type = source.get("type", "manual_drop")
 retention_policy = source.get("retention_policy", "append_only")
 
-bronze_schema = schemas_config["schemas"]["bronze"].get(source_name, {})
+bronze_schema = schemas_config["schemas"]["bronze"].get(table_name, {})
 source_file_type = bronze_schema.get("file_type", "csv")
 reader_params = bronze_schema.get("reader", {})
 required_columns = bronze_schema.get("required_columns", [])
@@ -89,7 +89,7 @@ required_columns = bronze_schema.get("required_columns", [])
 # --------------------------
 # Prepare directories
 # --------------------------
-bronze_dir = Path(BRONZE_PATH) / source_name
+bronze_dir = Path(BRONZE_PATH) / table_name
 bronze_dir.mkdir(parents=True, exist_ok=True)
 runs_dir = bronze_dir / "_runs"
 runs_dir.mkdir(exist_ok=True)
@@ -106,7 +106,7 @@ pipeline_end_date = datetime.strptime(pipeline_config["pipeline"]["execution"]["
 current_date = pipeline_end_date
 downloaded_files = []
 
-logger.info(f"Starting bronze pipeline for source {source_name}")
+logger.info(f"Starting bronze pipeline for source {table_name}")
 
 # --------------------------
 # Source type: Manual drop 
@@ -128,7 +128,7 @@ if source_type=="manual_drop":
             
             process_bronze_file(
                 file_path=file_path,
-                source_name=source_name,
+                source_name=table_name,
                 file_type=source_file_type,
                 reader_params=reader_params,
                 required_columns=required_columns,
@@ -158,10 +158,10 @@ elif source_type=="automated_download":
 
         # Determine filename based on filename pattern
         filename_pattern = source["path_template"].get("filename_pattern")
-        if source_name == "gdelt":
+        if table_name == "gdelt":
             filename = filename_pattern.format(year=current_date.year, month=current_date.month, day=current_date.day)
         else:
-            raise NotImplementedError(f"Filename pattern logic not defined for {source_name}")
+            raise NotImplementedError(f"Filename pattern logic not defined for {table_name}")
         
         logger.info(f"Processing {filename}")
 
@@ -197,7 +197,7 @@ elif source_type=="automated_download":
 
                 process_bronze_file(
                     file_path=bronze_output_path_temp,
-                    source_name=source_name,
+                    table_name=table_name,
                     file_type=source_file_type,
                     reader_params=reader_params,
                     required_columns=required_columns,
@@ -230,7 +230,7 @@ metadata_file = save_run_metadata(
     pipeline_name=PIPELINE_NAME,
     pipeline_timezone=PIPELINE_TIMEZONE,
     layer="bronze",
-    source_name=source_name,
+    input_name=table_name,
     pipeline_start_date=pipeline_start_date,
     pipeline_end_date=pipeline_end_date,
     log_file=log_file,

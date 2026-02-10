@@ -89,17 +89,14 @@ schemas:
   silver:
 
     acled:
-      transform_name: silver_standard_v1
-
       columns:
-        country:    { source: COUNTRY, type: string, nullable: false, primary_key: true }
-        month:      { source: MONTH, type: string, nullable: false, primary_key: true }
-        year:       { source: YEAR, type: int, nullable: false, primary_key: true }
-        num_events: { source: EVENTS, type: int, nullable: false }
+        country:          { source: COUNTRY, type: string, nullable: false, primary_key: true }
+        month_start_date: { source: month_start_date, type: "datetime64[ns]", nullable: false, primary_key: true }
+        num_events:       { source: EVENTS, type: int, nullable: false }
 
     gdelt:
 
-      transform_name: silver_standard_v1
+      transform_name: silver_gdelt_standard_v1
 
       columns: 
         event_id:     { source: GLOBALEVENTID, type: string, nullable: false, primary_key: true }
@@ -115,44 +112,51 @@ schemas:
 
   gold: 
 
-    gdelt_daily_country_metrics:
-      source: gdelt
-      grain:
-        - event_date
-        - country_code
+    acled_monthly:
+      inputs:
+        acled: { layer: silver, table_name: acled }
 
-      dimensions:
-        event_date: { type: date }
-        country_code: { type: string }
+      columns:
+        month_start_date: { type: "datetime64[ns]", nullable: false }
+        total_events: { type: Int64 }
 
-      metrics:
-        num_events: { type: int }
-        avg_tone_mean: { type: float }
-        avg_tone_min: { type: float }
-        avg_tone_max: { type: float }
+    gdelt_daily: 
+      transform_name: gold_gdelt_daily_metrics_v1
+     
+      inputs: 
+        gdelt: { layer: silver, table_name: gdelt }
 
-    crisis_event_activity:
-      description: >
-        Unified crisis and political event indicators across sources.
+      columns: 
 
-      datasets:
+        event_date:     { type: "datetime64[ns]", nullable: false }
+        total_events:   { type: Int64}
+        avg_tone:       { type: Float64}
+        total_mentions: { type: Int64}
+        total_articles: { type: Inullablent64}
+      
+    gdelt_monthly:
+      inputs:
+        gdelt: { layer: silver, table_name: gdelt }
 
-        - name: events_by_country_day
-          grain:
-            - country
-            - date
-          sources:
-            - acled
-            - gdelt
-          metrics:
-            total_events: count
+      columns:
+        month_start_date: { type: "datetime64[ns]", nullable: false }
+        total_events:     { type: Int64}
+        avg_tone:         { type: Float64}
+        total_mentions:   { type: Int64}
+        total_articles:   { type: Int64}
+             
+    conflicts_monthly:
+      inputs:
+        gdelt: { layer: gold, table_name: gdelt_monthly }
+        acled: { layer: gold, table_name: acled_monthly }
 
-        - name: fatalities_by_country_month
-          grain:
-            - country
-            - year
-            - month
-          sources:
-            - acled
-          metrics:
-            total_fatalities: sum
+      join:
+        type: left
+        on:
+          gdelt.month_start_date: acled.month_start_date
+
+      columns:
+        month_start_date:   { type: "datetime64[ns]", nullable: false, partition_key: true }
+        gdelt_total_events: { type: Int64 }
+        gdelt_avg_tone:     { type: Float64 }
+        acled_total_events: { type: Int64 }

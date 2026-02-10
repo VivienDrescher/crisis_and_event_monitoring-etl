@@ -13,7 +13,7 @@ def save_run_metadata(
     pipeline_name: str,
     pipeline_timezone: str,
     layer: str,
-    source_name: str,
+    input_name: str,
     pipeline_start_date: pd.Timestamp,
     pipeline_end_date: pd.Timestamp,
     log_file: Path,
@@ -29,7 +29,7 @@ def save_run_metadata(
         pipeline_name: Name of pipeline
         pipeline_timezone: Timezone of pipeline
         layer: 'bronze' or 'silver'
-        source_name: Source being processed
+        input_name: Input being processed
         pipeline_start_date: Execution start date
         pipeline_end_date: Execution end date
         log_file: Path to log file
@@ -49,7 +49,7 @@ def save_run_metadata(
         "timestamp_utc": utc_now_iso(),
         "pipeline": {"name": pipeline_name, "timezone": pipeline_timezone},
         "layer": layer,
-        "source": source_name,
+        "input": input_name,
         "pipeline_start_date": pipeline_start_date.isoformat(),
         "pipeline_end_date": pipeline_end_date.isoformat(),
         "log_file": str(log_file),

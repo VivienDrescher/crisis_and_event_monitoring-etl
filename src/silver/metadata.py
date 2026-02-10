@@ -16,8 +16,6 @@ def add_silver_metadata(
     bronze_run_id: str,
     bronze_ingested_at: datetime,
     silver_run_id: str,
-    transform_standard_name: Optional[str] = None,
-    transform_custom_name: Optional[str] = None,
     logger: Optional[logging.Logger] = None,
 ) -> pd.DataFrame:
     """
@@ -52,11 +50,6 @@ def add_silver_metadata(
     df["_bronze_run_id"] = bronze_run_id
     df["_bronze_ingested_at"] = bronze_ingested_at
     df["_silver_run_id"] = silver_run_id
-
-    if transform_standard_name:
-        df["_transform_standard_name"] = transform_standard_name
-    if transform_custom_name:
-        df["_transform_custom_name"] = transform_custom_name
 
     # Track the exact git commit for reproducibility
     df["_code_version"] = get_git_commit()

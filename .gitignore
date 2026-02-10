@@ -5,9 +5,8 @@ __pycache__/
 env/
 
 # Data
-data/landing/
-data/bronze/
-data/silver/
+data/
+
 
 # Secrets
 .env

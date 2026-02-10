@@ -1,8 +1,52 @@
 from __future__ import annotations
 
 import pandas as pd
-from typing import List
+from typing import List, Optional, Dict
 import logging
+
+
+def enforce_schema(
+    df: pd.DataFrame,
+    schema_dtypes: Dict[str, str],
+    logger: Optional[logging.Logger] = None
+) -> pd.DataFrame:
+    """
+    Enforce a schema on a DataFrame by casting column types and dropping extra columns.
+
+    Notes:
+        - Only keeps columns present in schema_dtypes.
+        - Safely parses datetime columns to UTC-aware datetime64[ns, UTC].
+        - Logs warnings for missing columns if a logger is provided.
+        - Raises ValueError if casting fails.
+
+    Args:
+        df: Input DataFrame
+        schema_dtypes: Dictionary mapping column names to desired dtypes
+        logger: Optional logger for warnings
+
+    Returns
+        pd.DataFrame with columns casted to schema types
+    """
+    df = df.loc[:, df.columns.intersection(schema_dtypes.keys())].copy()
+
+    for col, dtype in schema_dtypes.items():
+        if col not in df.columns:
+            if logger:
+                logger.warning(f"[enforce_schema] Column '{col}' not found; skipping cast")
+            continue
+
+        try:
+            if "datetime" in str(dtype).lower():
+                if not pd.api.types.is_datetime64_any_dtype(df[col]):
+                    df[col] = pd.to_datetime(df[col], errors="coerce", utc=True)
+            else:
+                df[col] = df[col].astype(dtype)
+        except Exception as e:
+            raise ValueError(f"[enforce_schema] Failed casting column '{col}' to {dtype}") from e
+    
+    logger.info(f"[enforce_schema] Enforced datatypes and dropped columns missing a specification in schema.yaml")
+
+    return df
 
 
 def validate_required_columns(
