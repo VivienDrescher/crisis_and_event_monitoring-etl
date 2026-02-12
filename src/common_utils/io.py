@@ -31,13 +31,13 @@ def download_file_from_url(
     response = requests.get(url, timeout=timeout)
     if response.status_code == 404:
         logger.info(
-            f"[download_and_extract] File not found at URL (404). Skipping download: {url}"
+            f"[download_and_extract] File not found at URL (404). Skipping download."
         )
         return False
     response.raise_for_status()
 
     target_path.write_bytes(response.content)
-    logger.info(f"[download_and_extract_file] Download complete: {target_path}")
+    logger.info(f"[download_and_extract_file] Download complete.")
 
     return True
 

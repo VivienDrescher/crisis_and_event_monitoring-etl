@@ -2,9 +2,9 @@ sources:
 
   acled:
     enabled: true
-    type: manual_drop
     update_frequency: irregular
-    retention_policy: append_only
+    aquisition_method: manual_drop
+    ingestion_mode: latest_snapshot
     file_type: xlsx
     path_template:
       base_url: "https://acleddata.com/system/files"
@@ -15,13 +15,12 @@ sources:
     reader:
       sheet_name: 0
       header: 0
-    notes: "Manual download; only keep the latest file per month"
 
   gdelt:
     enabled: true
-    type: automated_download
     update_frequency: daily
-    retention_policy: append_only
+    aquisition_method: http_download
+    ingestion_mode: append
     file_type: csv
     compression: zip 
     path_template:
@@ -90,4 +89,3 @@ sources:
         - ActionGeo_FeatureID
         - DATEADDED
         - SOURCEURL
-    notes: "Automated daily download; append only, no overwrite"

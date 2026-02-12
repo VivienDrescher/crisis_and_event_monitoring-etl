@@ -29,7 +29,7 @@ def save_checkpoint(
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
     payload = {
-        "processed_files": sorted(processed_files),
+        "checkpoint_files": sorted(processed_files),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -46,5 +46,5 @@ def identify_new_files(
     """
     return [
         f for f in files
-        if f.name not in checkpoint_files
+        if str(f) not in checkpoint_files
     ]

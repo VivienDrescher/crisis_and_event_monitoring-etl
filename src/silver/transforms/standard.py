@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from typing import Iterable, Optional, Dict, Tuple
+from typing import Iterable, Optional, Dict
+from pathlib import Path 
 import pandas as pd
 import logging
 
-from src.silver.transforms.custom import CUSTOM_TRANSFORMS
+from src.silver.transforms.registry import SILVER_DATASET_CUSTOM_TRANSFORMS
 from src.silver.metadata import add_silver_metadata
-from src.common_utils.schema_validation import enforce_schema, validate_required_columns_not_null, validate_required_columns
-
+from src.common_utils.schema_validation import enforce_schema, validate_required_columns, validate_columns_not_null
+from src.common_utils.parquet import read_parquet
 
 # -------------------------------
 # Helper / reusable transformations
@@ -15,38 +16,56 @@ from src.common_utils.schema_validation import enforce_schema, validate_required
 
 def deduplicate(
     df: pd.DataFrame,
-    primary_key: Optional[Iterable[str]] = None,
+    primary_keys: Iterable[str],
+    record_timestamp: Optional[str],
     logger: Optional[logging.Logger] = None,
 ) -> pd.DataFrame:
     """
-    Drop duplicate rows based on the primary key columns.
+    Ensure only one record per primary key based on the latest timestamp.
+
+    Keeps the row with the maximum timestamp per primary key.
 
     Args:
         df: Input DataFrame
         primary_key: Iterable of column names defining the primary key
+        record_timestamp: Column used to determine latest record
         logger: Optional logger
 
     Returns:
         Deduplicated DataFrame (copy)
     """
     logger = logger or logging.getLogger(__name__)
-    df = df.copy()
-    
-    if not primary_key:
+
+    # Validate primary keys 
+    if not primary_keys:
         logger.warning("[deduplicate] No primary key provided; skipping deduplication")
         return df
 
-    valid_keys = [c for c in primary_key if c in df.columns]
-    missing_keys = [c for c in primary_key if c not in df.columns]
-
-    if missing_keys:
-        logger.warning(f"[deduplicate] Primary key columns missing from DataFrame: {missing_keys}")
-    if not valid_keys:
-        logger.warning("[deduplicate] No valid primary key columns found; skipping deduplication")
+    valid_primary_keys = [c for c in primary_keys if c in df.columns]
+    invalid_primary_keys = [c for c in primary_keys if c not in df.columns]
+    if invalid_primary_keys:
+        logger.warning("[deduplicate] Bronze data is missing primary key columns; skipping deduplication")
         return df
 
-    df_deduped = df.drop_duplicates(subset=valid_keys, keep="last")
-    logger.info(f"[deduplicate] Dropped {len(df) - len(df_deduped)} duplicate rows using keys {valid_keys}")
+    # Validate timestamp column 
+    if not record_timestamp or record_timestamp not in df.columns:
+        logger.warning("[deduplicate] No valid timestamp column found; skipping deduplication")
+        return df 
+
+    if not pd.api.types.is_datetime64_any_dtype(df[record_timestamp]):
+        df[record_timestamp] = pd.to_datetime(df[record_timestamp], errors="coerce")
+
+    # Keep row with max timestamp per primary key ---
+    index = df.groupby(valid_primary_keys)[record_timestamp].idxmax()
+    df_deduped = df.loc[index].copy()
+
+    if len(df) != len(df_deduped):
+        logger.info(
+            f"[deduplicate] Reduced {len(df)} → {len(df_deduped)} rows "
+            f"keeping latest per {valid_primary_keys} "
+            f"based on '{record_timestamp}'."
+        )
+
     return df_deduped
 
 
@@ -104,54 +123,14 @@ def apply_column_renames(
     return df.rename(columns=rename_map)
 
 
-def apply_custom_transform(
-    df: pd.DataFrame,
-    source_name: str,
-    logger: Optional[logging.Logger] = None
-) -> Tuple[pd.DataFrame, Optional[str]]:
-    """
-    Apply a source-specific custom transformation if registered.
-
-    Args:
-        df: Input DataFrame
-        source_name: Source key to look up in CUSTOM_TRANSFORMS
-        logger: Optional logger to pass to the custom transform
-
-    Returns:
-        Tuple of:
-            - Transformed DataFrame
-            - Name of the custom transform applied (or None if no transform)
-    """
-    logger = logger or logging.getLogger(__name__)
-    entry = CUSTOM_TRANSFORMS.get(source_name)
-
-    if not entry:
-        logger.debug(f"[apply_custom_transform] No custom transform registered for source '{source_name}'")
-        return df, None
-
-    transform_func = entry["function"]
-    transform_name = entry["name"]
-
-    # Pass the logger if the function accepts it
-    try:
-        df = transform_func(df, logger=logger)
-    except Exception as e:
-        logger.exception(f"[apply_custom_transform] Failed to apply custom transform '{transform_name}'")
-        raise
-
-    return df, transform_name
-
-
 # -------------------------------
 # Full Silver pipeline
 # -------------------------------
-
-def process_bronze_to_silver(
-    df: pd.DataFrame,
-    table_name: str,
+def transform_bronze_files_to_silver(
+    files, #?
+    table_name: str, 
     silver_schema: Dict,
-    silver_run_id: str,
-    bronze_file_name: str,
+    run_id: str,
     logger: Optional[logging.Logger] = None
 ) -> pd.DataFrame:
     """
@@ -170,44 +149,64 @@ def process_bronze_to_silver(
     
     logger = logger or logging.getLogger(__name__)
 
-    df = df.copy()
-    column_schema = silver_schema.get("columns")
+    processed_input_files = set()
+    dfs = []
 
-    bronze_run_id = df["_run_id"].iloc[0] if "_run_id" in df.columns else None
-    bronze_ingested_at = df["_bronze_ingested_at"].iloc[0] if "_bronze_ingested_at" in df.columns else None
+    for num_file, bronze_file in enumerate(files, start=1):
+        logger.info(f"Processing Bronze file {num_file}/{len(files)}: {bronze_file.name}")
 
-    # 1. Rename
-    df = apply_column_renames(df, silver_schema.get("columns"))
+        df = read_parquet(bronze_file, logger=logger)
 
-    # 2. Custom transformation
-    df, transform_custom_name = apply_custom_transform(df, table_name, logger)
+        entry = SILVER_DATASET_CUSTOM_TRANSFORMS.get(table_name) 
+        if not entry:
+            raise ValueError(
+                f"[process_bronze_to_silver] No silver transform registered for dataset '{table_name}'"
+            )
 
-    # 3. Normalize strings
-    df = normalize_strings(df, logger)
+        transform_fn = entry["function"]
 
-    # 4. Enforce schema
-    schema_dtypes = { col: spec["type"] for col, spec in column_schema.items() if "type" in spec}
-    df = enforce_schema(df, schema_dtypes, logger)
+        silver_column_schema = silver_schema.get("columns")
+        schema_dtypes = { col: spec["type"] for col, spec in silver_column_schema.items() if "type" in spec}
+        required_cols = [col for col, spec in silver_column_schema.items() if spec.get("nullable") is False]
+        primary_keys = [col for col, spec in silver_column_schema.items() if spec.get("primary_key", False)]
+        record_timestamp = silver_schema.get("record_timestamp")
 
-    # 5. Add Silver metadata
-    df = add_silver_metadata(
-        df,
-        source_name=table_name,
-        bronze_file=bronze_file_name,
-        bronze_run_id=bronze_run_id,
-        bronze_ingested_at = bronze_ingested_at,
-        silver_run_id=silver_run_id,
-        logger=logger
-    )
+        # Extract bronze run metdata relevant for silver layer 
+        bronze_run_id = df["_run_id"].iloc[0] if "_run_id" in df.columns else None
+        bronze_ingested_at = df["_bronze_ingested_at"].iloc[0] if "_bronze_ingested_at" in df.columns else None
 
-    # 7. Validate schema
-    required_cols = [col for col, spec in column_schema.items() if spec.get("nullable") is False]
-    validate_required_columns(df, required_cols, logger)
-    validate_required_columns_not_null(df, required_cols, logger)
+        # Rename columns
+        df = apply_column_renames(df, silver_column_schema)
 
-    # 8. Deduplicate
-    primary_key = [col for col, spec in column_schema.items() if spec.get("primary_key", False)]
-    if primary_key:
-        df = deduplicate(df, primary_key, logger)
+        # Apply custom transformation
+        df = transform_fn(df, logger)
 
-    return df
+        # Normalize strings
+        df = normalize_strings(df, logger)
+
+        # Deduplicate
+        df = deduplicate(df, primary_keys, record_timestamp, logger)
+
+        # Enforce silver schema (types + drop extra columns)
+        df = enforce_schema(df, schema_dtypes, logger)
+
+        # Add Silver metadata
+        df = add_silver_metadata(
+            df,
+            bronze_run_id=bronze_run_id,
+            bronze_ingested_at = bronze_ingested_at,
+            silver_run_id=run_id,
+            logger=logger
+        )
+
+        #  Validate schema
+        validate_required_columns(df, required_cols, logger)
+        validate_columns_not_null(df, required_cols, logger)
+
+        dfs.append(df)
+        processed_input_files.add(str(bronze_file))
+
+    if not dfs:
+        return None
+
+    return pd.concat(dfs, ignore_index=True), processed_input_files 
