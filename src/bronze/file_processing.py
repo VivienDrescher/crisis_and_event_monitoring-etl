@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import logging
-from typing import Optional
+from typing import Optional, Dict
 
 from src.bronze.metadata import add_bronze_metadata
 from src.common_utils.io import read_tabular_file
@@ -14,8 +14,8 @@ def process_bronze_file(
     input_path: Path,
     output_path: Path,
     table_name: str,
-    source_config: dict,
-    table_schema: dict,
+    source_config: Dict,
+    bronze_schema: Dict,
     run_id: str,
     logger: Optional[logging.Logger] = None,
 ) -> Path:
@@ -32,7 +32,7 @@ def process_bronze_file(
         output_path: Target Parquet output path
         table_name: Name of the table (e.g., 'gdelt')
         source_config: Dict with source file config (file_type, compression, reader params)
-        table_schema: Dict with schema info (required columns, etc.)
+        bronze_schema: Dict with schema info (required columns, etc.)
         run_id: Current pipeline run ID
         logger: Optional logger
 
@@ -49,7 +49,7 @@ def process_bronze_file(
     df = read_tabular_file(input_path, file_type, compression, reader_params, logger)
 
     # Validate required columns
-    required_columns = table_schema.get("required_columns", [])
+    required_columns = bronze_schema.get("required_columns", [])
     validate_required_columns(df, required_columns, logger)
 
     # Add Bronze metadata
@@ -57,7 +57,7 @@ def process_bronze_file(
         df,
         source_name=table_name,
         source_file=input_path.name,
-        run_id=run_id,
+        bronze_run_id=run_id,
         logger=logger,
     )
 

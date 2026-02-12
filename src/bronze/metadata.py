@@ -11,22 +11,17 @@ def add_bronze_metadata(
     df: pd.DataFrame,
     source_name: str,
     source_file: str,
-    run_id: Optional[str] = None,
+    bronze_run_id: str,
     logger: Optional[logging.Logger] = None,
 ) -> pd.DataFrame:
     """
     Add metadata to a Bronze DataFrame.
 
-    Notes:
-        - Bronze stores raw ingestion data.
-        - All timestamps are in UTC ISO format.
-        - Code version is always added for traceability.
-
     Args:
         df: Input DataFrame
         source_name: Name of the source
         source_file: File name being ingested
-        run_id: Optional ingestion run ID
+        run_id: Bronze pipeline run ID
         logger: Optional logger for informational messages
 
     Returns:
@@ -38,8 +33,7 @@ def add_bronze_metadata(
     df["_bronze_ingested_at"] = utc_now_iso()
     df["_source_name"] = source_name
     df["_source_file"] = source_file
-    if run_id:
-        df["_run_id"] = run_id
+    df["_bronze_run_id"] = bronze_run_id
 
     logger.info(f"[add_bronze_metadata] Bronze metadata added")
 

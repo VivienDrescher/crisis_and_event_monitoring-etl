@@ -14,6 +14,7 @@ from src.common_utils.time import get_date_range
 from src.common_utils.env import load_env
 from src.common_utils.run_metadata import save_run_metadata
 from src.common_utils.retry import with_retries
+from src.common_utils.checkpoints import load_checkpoint, save_checkpoint, identify_new_files
 from src.common_utils.logging import setup_logger, PrefixedLogger
 
 LAYER_NAME = "bronze"
@@ -67,13 +68,14 @@ run_id = run_start_time.strftime("%Y%m%d_%H%M%S")
 # Setup logging
 # --------------------------
 logger, log_file = setup_logger(
-    name=f"{PIPELINE_NAME}.silver.{table_name}",
+    name=f"{PIPELINE_NAME}.{LAYER_NAME}.{table_name}",
     log_dir=LOG_PATH, 
     debug=DEBUG,
     log_level=LOG_LEVEL,
     log_config=logging_config
 )
 prefixed_logger = PrefixedLogger(logger)
+logger.info(f"Starting {LAYER_NAME} pipeline for table {table_name}")
 
 # --------------------------
 # Validate source + schema 
@@ -85,10 +87,14 @@ source_config = sources_config["sources"][table_name]
 if not source_config.get("enabled", True):
     logger.info(f"Source {table_name} is disabled. Skipping.")
     sys.exit()
-source_type = source_config.get("type")
-retention_policy = source_config.get("retention_policy")
 
-bronze_schema = schemas_config["schemas"][LAYER_NAME].get(table_name, {})
+aquisition_method = source_config.get("aquisition_method")
+ingestion_mode = source_config.get("ingestion_mode")
+
+if table_name not in schemas_config["schemas"][LAYER_NAME]:
+    raise ValueError(f"No {LAYER_NAME} schema defined for {table_name}")
+
+bronze_schema = schemas_config["schemas"][LAYER_NAME][table_name]
 
 # --------------------------
 # Prepare directories
@@ -96,11 +102,11 @@ bronze_schema = schemas_config["schemas"][LAYER_NAME].get(table_name, {})
 landing_dir = Path(LANDING_PATH) / table_name
 landing_dir.mkdir(parents=True, exist_ok=True)
 
-bronze_output_dir = Path(BRONZE_PATH) / table_name
-bronze_output_dir.mkdir(parents=True, exist_ok=True)
+bronze_dir = Path(BRONZE_PATH) / table_name
+bronze_dir.mkdir(parents=True, exist_ok=True)
 
-runs_output_dir = bronze_output_dir / "_runs"
-runs_output_dir.mkdir(exist_ok=True)
+runs_dir = bronze_dir / "_runs"
+runs_dir.mkdir(exist_ok=True)
 
 # --------------------------
 # Pipeline date range
@@ -113,115 +119,143 @@ else:
     pipeline_end_date = datetime.now(tz=timezone)
 
 # --------------------------
-# Bronze Processing 
+# Identification of files to process 
 # --------------------------
-processed_input_files = []
-processed_output_files = []
-num_skipped_existent = 0
-num_skipped_nonexistent = 0
+checkpoint_path = bronze_dir / "_checkpoint.json"
+checkpoint_files_old = load_checkpoint(checkpoint_path)
 
-logger.info(f"Starting bronze pipeline for table {table_name}")
+if aquisition_method == "manual_drop":
+    # Files already present in landing directory
+    landing_files = [f for f in landing_dir.iterdir() if f.is_file()]
 
-if source_type == "manual_drop":
-
-    input_files = sorted(f for f in landing_dir.iterdir() if f.is_file())
-
-    for input_path in input_files:
-        bronze_output_path = replace_path_suffix(bronze_output_dir / input_path.name, ".parquet")
-
-        if retention_policy == "append_only" and bronze_output_path.exists():
-            prefixed_logger.info("[Skipping file] append_only and output already exists")
-            num_skipped_existent += 1
-            continue 
-
-        output = process_bronze_file(
-            input_path=input_path,
-            output_path=bronze_output_path,
-            table_name=table_name,
-            source_config=source_config,
-            table_schema=bronze_schema,
-            run_id=run_id,
-            logger=prefixed_logger,
+    if ingestion_mode in ("latest_snapshot", "append"):
+        # Only process files not yet recorded in checkpoint
+        file_candidates = identify_new_files(
+            files=landing_files,
+            checkpoint_files=checkpoint_files_old,
         )
 
-        if output:
-            processed_input_files.append(input_path)
-            processed_output_files.append(output)
+    elif ingestion_mode == "overwrite":
+        # Reprocess all landing files
+        file_candidates = landing_files
 
-elif source_type == "automated_download":
-
+    else: 
+        raise ValueError(f"Unknown ingestion_mode {ingestion_mode}")
+    
+elif aquisition_method == "http_download":
+    # Generate potential remote files from date range (newest first)
     filename_pattern = source_config["path_template"]["filename_pattern"]
     base_url = source_config["path_template"]["base_url"]
 
     file_candidates = []
+    for date in reversed(get_date_range(pipeline_start_date, pipeline_end_date)):
+        filename = filename_pattern.format(year=date.year, month=date.month, day=date.day)
+        file_candidates.append((f"{base_url}/{filename}", landing_dir / filename))
 
-    for d in get_date_range(pipeline_start_date, pipeline_end_date):
-        filename = filename_pattern.format(
-            year=d.year,
-            month=d.month,
-            day=d.day,
-        )
-        file_candidates.append(
-            (f"{base_url}/{filename}", landing_dir / filename)
-        )
+else: 
+    raise ValueError(f"Unknown source_type {aquisition_method}")
 
-    logger.info(f"Iterating over {len(file_candidates)} potential input files in the pipeline date range.")
+logger.info(f"Identified {len(file_candidates)} candidate files.")
 
-    for file_count, (url, landing_path) in enumerate(file_candidates, start=1):
+# --------------------------
+# Process files
+# --------------------------
+processed_input_files =  set()
+processed_output_files = set()
 
-        logger.info(f"Processing file for date {file_count}/{len(file_candidates)}: {landing_path.name}")
+num_skipped_existent = 0
+num_skipped_nonexistent = 0
+found_latest_snapshot = False 
 
-        bronze_output_path = replace_path_suffix(bronze_output_dir / landing_path.name, ".parquet")
-        if retention_policy == "append_only" and bronze_output_path.exists():
-            prefixed_logger.info("[Skipping file] append_only and output already exists")
-            num_skipped_existent += 1
-            continue 
+for file_count, candidate in enumerate(file_candidates, start=1):
+    
+    # Stop early once the newest available snapshot is processed
+    if ingestion_mode == "latest_snapshot" and found_latest_snapshot:
+        break
 
-        def attempt():
+    # Unpack candidate depending on acquisition method
+    if aquisition_method == "http_download":
+        url, input_file = candidate
+    else:
+        input_file = candidate
+        url = None
+
+    logger.info(f"Iterating over candidate file {file_count}/{len(file_candidates)}: {input_file.name}")
+
+    bronze_path = replace_path_suffix(bronze_dir / input_file.name, "parquet")
+
+    # Skip already processed files for append or latest_snapshot
+    if ingestion_mode != "overwrite" and bronze_path.exists():
+        prefixed_logger.info(f"[Skipping file] {bronze_path.name} already exists. Skipping download")
+        num_skipped_existent += 1
+
+        if ingestion_mode == "latest_snapshot":
+            found_latest_snapshot = True
+            prefixed_logger.info(f"[Latest snapshot] Using file: {input_file.name}")
+
+        continue
+
+    #  Download (if needed) + process Bronze transformation
+    def process_file():
+        if url:
             exists = download_file_from_url(
-                url=url,
-                target_path=landing_path,
-                timeout=DOWNLOAD_TIMEOUT,
-                logger=prefixed_logger,
+                url, 
+                input_file, 
+                timeout=DOWNLOAD_TIMEOUT, 
+                logger=prefixed_logger
             )
             if not exists:
-                prefixed_logger.info("[File not existent] Skipping")
+                prefixed_logger.info(f"[File not existent] {input_file.name}")
                 return None
             
-            return process_bronze_file(
-                input_path=landing_path,
-                output_path=bronze_output_path,
-                table_name=table_name,
-                source_config=source_config,
-                table_schema=bronze_schema,
-                run_id=run_id,
-                logger=prefixed_logger,
-            )
-
-        output = with_retries(
-            attempt,
-            max_retries=MAX_RETRIES,
-            backoff=RETRY_BACKOFF if not DEBUG else 1,
-            logger=logger,
+        return process_bronze_file(
+            input_path=input_file,
+            output_path=bronze_path,
+            table_name=table_name,
+            source_config=source_config,
+            bronze_schema=bronze_schema,
+            run_id=run_id,
+            logger=prefixed_logger,
         )
+    
+    output = with_retries(
+        process_file,
+        max_retries=MAX_RETRIES,
+        backoff=RETRY_BACKOFF if not DEBUG else 1,
+        logger=logger,
+    )
 
-        if output:
-            processed_input_files.append(landing_path)
-            processed_output_files.append(output)
-        
-        else: 
-            num_skipped_nonexistent += 1 
+    if output:
+        processed_input_files.add(str(input_file))
+        processed_output_files.add(output)
 
+        if ingestion_mode == "latest_snapshot":
+            found_latest_snapshot = True
+            prefixed_logger.info(f"[Latest snapshot] Using file: {input_file.name}")
+            
+    else:
+        num_skipped_nonexistent += 1
+
+# Update checkpoint file 
+if processed_input_files:
+    updated_files = checkpoint_files_old | processed_input_files
+    save_checkpoint(checkpoint_path, updated_files)
 else:
-    raise NotImplementedError(f"Source type {source_type} not implemented")
+    logger.info("No new files processed — keeping existing checkpoint unchanged.")
 
-logger.info(f"Pipeline complete. {len(processed_output_files)} files written. {num_skipped_existent} already existing. {num_skipped_nonexistent} nonexistent.")
+logger.info(
+    f"Pipeline complete | "
+    f"written={len(processed_output_files)} | "
+    f"skipped_existing={num_skipped_existent} | "
+    f"skipped_nonexistent={num_skipped_nonexistent} | "
+    f"candidates={len(file_candidates)}"
+)
 
 # --------------------------
 # Save run metadata
 # --------------------------
 metadata_file = save_run_metadata(
-    run_output_dir=runs_output_dir,
+    run_output_dir=runs_dir,
     run_id=run_id,
     layer=LAYER_NAME,
     table_name=table_name,
