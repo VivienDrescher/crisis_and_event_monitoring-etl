@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone, timedelta
-from typing import List
+from typing import List, Literal
 
 
 def utc_now_iso() -> str:
@@ -17,46 +17,45 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def date_range_utc(start_date, end_date):
-    date_range = []
-    current = start_date
-
-    while current <= end_date:
-        dt = current.astimezone(timezone.utc)
-        date_range.append((dt.isoformat(sep=" ", timespec="seconds"),))
-        current += timedelta(days=1)
-
-    return date_range
-
-
 def get_date_range(
     start_date: datetime,
     end_date: datetime,
     step: timedelta = timedelta(days=1),
-) -> List[datetime]:
+    output_format: Literal["datetime", "iso", "iso_tuple"] = "datetime",
+) -> List:
     """
-    Generate a list of timezone-aware UTC datetimes between two dates (inclusive).
-    The returned datetimes are normalized to UTC.
+    Generate a UTC-normalized date range (inclusive).
 
     Args:
-        start_date: Start datetime (must be timezone-aware)
-        end_date: End datetime (must be timezone-aware)
-        step: Time delta between values (default: 1 day)
+        start_date: timezone-aware datetime
+        end_date: timezone-aware datetime
+        step: increment (default: 1 day)
+        output_format:
+            - "datetime"  → List[datetime]
+            - "iso"       → List[str] (UTC ISO format)
+            - "iso_tuple" → List[Tuple[str]] (for SQL parameter binding)
 
     Returns:
-        List of UTC-aware datetime objects, inclusive of start and end date
-
-    Raises:
-        ValueError: If start_date or end_date are not timezone-aware
+        List of values depending on output format.
     """
     if start_date.tzinfo is None or end_date.tzinfo is None:
         raise ValueError("start_date and end_date must be timezone-aware")
 
-    dates: List[datetime] = []
+    results = []
     current = start_date
 
     while current <= end_date:
-        dates.append(current.astimezone(timezone.utc))
+        dt_utc = current.astimezone(timezone.utc)
+
+        if output_format == "datetime":
+            results.append(dt_utc)
+        elif output_format == "iso":
+            results.append(dt_utc.isoformat(sep=" ", timespec="seconds"))
+        elif output_format == "iso_tuple":
+            results.append((dt_utc.isoformat(sep=" ", timespec="seconds"),))
+        else:
+            raise ValueError(f"Unknown output mode: {output}")
+
         current += step
 
-    return dates
+    return results

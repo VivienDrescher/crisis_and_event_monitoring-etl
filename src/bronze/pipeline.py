@@ -56,7 +56,7 @@ timezone = ZoneInfo(PIPELINE_TIMEZONE)
 # --------------------------
 # CLI arguments
 # --------------------------
-parser = argparse.ArgumentParser(description="Bronze ETL ingestion")
+parser = argparse.ArgumentParser(description="Bronze ingestion")
 parser.add_argument("--table", type=str, required=True, help="Name of bronze table, e.g., gdelt")
 args = parser.parse_args()
 table_name = args.table.lower()

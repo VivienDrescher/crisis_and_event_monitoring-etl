@@ -55,53 +55,17 @@ def read_parquet_partition(
 
     # Verify the directory exists -> return empty df otherwise 
     if not partition_dir.exists():
-        logger.info(f"[read_partition] Parition folder not existing. Creating new partition")
-        return pd.DataFrame()
+        logger.info(f"[read_partition] Parition folder {partition_dir} not existing.")
+        return pd.DataFrame(), []
 
     # Read all files from the parition folder
-    files = list(partition_dir.glob("*.parquet"))
-    if not files:
-        return pd.DataFrame()
-    dfs = [pd.read_parquet(f) for f in files]
+    parition_files = list(partition_dir.glob("*.parquet"))
+    if not parition_files:
+        return pd.DataFrame(), []
+    dfs = [pd.read_parquet(f) for f in parition_files]
+    logger.info(f"[read_partition] Red Parition folder {partition_dir}.")
 
-    return pd.concat(dfs, ignore_index=True)
-
-
-# def write_parquet_partition(
-#     df: pd.DataFrame,
-#     base_dir: Path,
-#     partition_keys: List[str],
-#     partition_values: Iterable[str],
-#     file_name: str,
-#     logger: Optional[logging.Logger] = None,
-# ) -> List[Path]:
-#     """
-#     Safely write a single partition to a Parquet file based on the partition keys and values.
-
-#     Uses atomic write semantics:
-#     - write to a temp file
-#     - fsync
-#     - atomic rename
-#     """
-#     logger = logger or logging.getLogger(__name__)
-
-#     # Determin partition directory  
-#     partition_path = build_partition_path(
-#         base_dir, partition_keys, partition_values
-#     )
-    
-#     # Determine output paths 
-#     partition_path.mkdir(parents=True, exist_ok=True)
-#     output_file = partition_path / f"{file_name}.parquet"
-#     tmp_file = partition_path / f".{file_name}.{uuid.uuid4().hex}.tmp"
-
-#     # Safe write 
-#     write_parquet(df, tmp_file, logger=logger)
-#     tmp_file.replace(output_file)
-    
-#     logger.info(f"[write_parquet_partition] Wrote {len(df)} rows to {partition_path}")
-
-#     return output_file
+    return pd.concat(dfs, ignore_index=True), parition_files
 
 
 def write_partitioned_parquet(
@@ -151,7 +115,7 @@ def write_partitioned_parquet(
         if is_merge:
             if primary_keys is None or record_timestamp is None:
                 raise ValueError("primary_keys and record_timestamp must be provided for merge mode")
-            df_existing = read_parquet_partition(partition_dir, logger)
+            df_existing, _ = read_parquet_partition(partition_dir, logger)
             if df_existing is not None and not df_existing.empty:
                 df_partition = pd.concat([df_existing, df_partition], ignore_index=True)
                 df_partition = deduplicate(df_partition, primary_keys, record_timestamp, logger)

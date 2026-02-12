@@ -53,7 +53,7 @@ timezone = ZoneInfo(PIPELINE_TIMEZONE)
 # CLI args
 # --------------------------
 parser = argparse.ArgumentParser(description="Silver ingestion")
-parser.add_argument("--table", type=str, required=True, help="Name of the table, e.g., gdelt")
+parser.add_argument("--table", type=str, required=True, help="Name of the silver table, e.g., gdelt")
 args = parser.parse_args()
 table_name = args.table.lower()
 

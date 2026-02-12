@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict
 import pandas as pd
 import logging
 
 from src.gold.transforms.registry import GOLD_DATASET_TRANSFORMS
-from src.common_utils.schema_validation import enforce_schema, validate_required_columns_not_null, validate_required_columns
+from src.common_utils.schema_validation import enforce_schema, validate_required_columns, validate_columns_not_null
 
 
 def process_silver_to_gold(
@@ -38,7 +38,6 @@ def process_silver_to_gold(
     transform_fn = entry["function"]
 
     # Perform dataset-specific transformations (handles multiple input dfs)
-    # Dataset-specific function signature should be: fn(dfs: Dict[str, pd.DataFrame], logger) -> pd.DataFrame
     df_gold = transform_fn(dfs, logger)
 
     # Enforce gold schema (types + drop extra columns)
@@ -48,6 +47,6 @@ def process_silver_to_gold(
     # Validate required columns and NOT NULL constraints
     required_cols = [col for col, spec in gold_column_schema.items() if spec.get("nullable") is False]
     validate_required_columns(df_gold, required_cols, logger)
-    validate_required_columns_not_null(df_gold, required_cols, logger)
+    validate_columns_not_null(df_gold, required_cols, logger)
 
     return df_gold
