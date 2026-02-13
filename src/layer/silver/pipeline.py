@@ -1,18 +1,23 @@
-import os
 import argparse
-import yaml
-from pathlib import Path
-from datetime import datetime, timezone
+import os
 import sys
+from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from src.layer.silver.transforms.common import process_bronze_to_silver
+import yaml
 
-from src.utils.system import load_env, setup_logger, PrefixedLogger
+from src.layer.silver.transforms.common import process_bronze_to_silver
 from src.utils.dataframe import deduplicate
 from src.utils.io import write_parquet, write_partitioned_parquet
-from src.utils.pipeline import save_run_metadata, load_checkpoint, save_checkpoint, identify_new_files
+from src.utils.pipeline import (
+    identify_new_files,
+    load_checkpoint,
+    save_checkpoint,
+    save_run_metadata,
+)
 from src.utils.storage import clear_data_dir
+from src.utils.system import PrefixedLogger, load_env, setup_logger
 
 LAYER_NAME = "silver"
 
@@ -30,13 +35,15 @@ SILVER_PATH = Path(os.getenv("SILVER_PATH", "data/silver"))
 CONFIG_PATH = Path(os.getenv("CONFIG_PATH", "config"))
 LOG_PATH = Path(os.getenv("LOG_PATH", "logs"))
 
+
 # --------------------------
-# Load configs 
+# Load configs
 # --------------------------
 def load_yaml(path):
     with open(path) as f:
         return yaml.safe_load(f)
-    
+
+
 sources_config = load_yaml(Path(CONFIG_PATH) / "sources.yaml")
 pipeline_config = load_yaml(Path(CONFIG_PATH) / "pipeline.yaml")
 schemas_config = load_yaml(Path(CONFIG_PATH) / "schemas.yaml")
@@ -50,7 +57,9 @@ timezone = ZoneInfo(PIPELINE_TIMEZONE)
 # CLI args
 # --------------------------
 parser = argparse.ArgumentParser(description="Silver ingestion")
-parser.add_argument("--table", type=str, required=True, help="Name of the silver table, e.g., gdelt")
+parser.add_argument(
+    "--table", type=str, required=True, help="Name of the silver table, e.g., gdelt"
+)
 args = parser.parse_args()
 table_name = args.table.lower()
 
@@ -58,14 +67,14 @@ run_start_time = datetime.now(tz=timezone)
 run_id = run_start_time.strftime("%Y%m%d_%H%M%S")
 
 # --------------------------
-# Setup logging 
+# Setup logging
 # --------------------------
 logger, log_file = setup_logger(
     name=f"{PIPELINE_NAME}.{LAYER_NAME}.{table_name}",
     log_dir=LOG_PATH,
     debug=DEBUG,
     log_level=LOG_LEVEL,
-    log_config=logging_config
+    log_config=logging_config,
 )
 prefixed_logger = PrefixedLogger(logger)
 logger.info(f"Starting {LAYER_NAME} pipeline for table {table_name}")
@@ -101,7 +110,7 @@ runs_dir = silver_dir / "_runs"
 runs_dir.mkdir(exist_ok=True)
 
 # --------------------------
-# Silver processing 
+# Silver processing
 # --------------------------
 processed_output_files = set()
 
@@ -112,9 +121,13 @@ if not bronze_files:
 
 # Schema and partition config
 column_schema = silver_schema.get("columns", {})
-primary_keys = [col for col, spec in column_schema.items() if spec.get("primary_key", False)]
+primary_keys = [
+    col for col, spec in column_schema.items() if spec.get("primary_key", False)
+]
 record_timestamp = silver_schema.get("record_timestamp")
-partition_keys = [col for col, spec in column_schema.items() if spec.get("partition_key", False)]
+partition_keys = [
+    col for col, spec in column_schema.items() if spec.get("partition_key", False)
+]
 
 checkpoint_path = silver_dir / "_checkpoint.json"
 checkpoint_files_old = load_checkpoint(checkpoint_path)
@@ -150,11 +163,13 @@ elif ingestion_mode == "overwrite":
         logger.info("No Bronze data found. Exiting.")
         sys.exit(0)
 
-    # Global deduplication 
+    # Global deduplication
     df = deduplicate(df, primary_keys, record_timestamp, prefixed_logger)
 
-    logger.info(f"Writing the processed Broze files to Silver partitions.")    
-    processed_output_files = write_partitioned_parquet(df, partition_keys, silver_dir, logger=prefixed_logger)
+    logger.info("Writing the processed Broze files to Silver partitions.")
+    processed_output_files = write_partitioned_parquet(
+        df, partition_keys, silver_dir, logger=prefixed_logger
+    )
 
 # MODE: append (incremental)
 elif ingestion_mode == "append":
@@ -175,23 +190,25 @@ elif ingestion_mode == "append":
         logger.info("No Bronze data found. Exiting.")
         sys.exit(0)
 
-    # Partition-aware merge write 
-    logger.info(f"Merging the processed Bronze files into the existing Silver partitions.")  
+    # Partition-aware merge write
+    logger.info(
+        "Merging the processed Bronze files into the existing Silver partitions."
+    )
     processed_output_files = write_partitioned_parquet(
-        df_new, 
-        partition_keys, 
-        silver_dir, 
-        True, 
-        primary_keys, 
-        record_timestamp, 
-        prefixed_logger
-        )    
+        df_new,
+        partition_keys,
+        silver_dir,
+        True,
+        primary_keys,
+        record_timestamp,
+        prefixed_logger,
+    )
 
 # Unknown mode
 else:
     raise ValueError(f"Ingestion mode {ingestion_mode} not implemented")
 
-# Update checkpoint file 
+# Update checkpoint file
 if processed_input_files:
     updated_files = checkpoint_files_old | processed_input_files
     save_checkpoint(checkpoint_path, updated_files, timezone)
@@ -216,9 +233,9 @@ metadata_file = save_run_metadata(
     pipeline_config=pipeline_config,
     schema_config=schemas_config,
     input_files=processed_input_files,
-    output_files=processed_output_files, 
+    output_files=processed_output_files,
     source_configs=source_config,
-    start_time=run_start_time
+    start_time=run_start_time,
 )
 
 logger.info(f"Saved run metadata: {metadata_file}")

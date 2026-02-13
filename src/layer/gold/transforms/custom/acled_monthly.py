@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import logging
+from typing import Dict
+
 import pandas as pd
-from typing import Dict 
 
 
 def build(
@@ -27,11 +28,8 @@ def build(
     df_acled = dfs["acled"].copy()
 
     # Aggregate metrics
-    acled_monthly = (
-        df_acled.groupby("month_start_date", as_index=False)
-            .agg(
-                total_events=("num_events", "sum"),
-            )
+    acled_monthly = df_acled.groupby("month_start_date", as_index=False).agg(
+        total_events=("num_events", "sum"),
     )
 
     logger.info("[acled_monthly] Produced %s rows", len(acled_monthly))

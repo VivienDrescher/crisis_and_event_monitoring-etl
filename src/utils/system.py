@@ -1,21 +1,25 @@
 from __future__ import annotations
 
-import os
-import time
-import subprocess 
-from pathlib import Path
-from dotenv import load_dotenv
-from datetime import datetime, timezone, timedelta
-from zoneinfo import ZoneInfo
-from typing import Optional, Tuple, Union, Callable, Any, List, Literal
 import logging
-import logging.config 
+import logging.config
+import os
+import subprocess
+import time
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, Callable, Literal, Optional, Tuple, Union
+from zoneinfo import ZoneInfo
+
+from dotenv import load_dotenv
 
 # --------------------------
-# Environment Utils 
+# Environment Utils
 # --------------------------
 
-def load_env(env_file: str | Path | None = None, logger: Optional[logging.Logger] = None) -> Path | None:
+
+def load_env(
+    env_file: str | Path | None = None, logger: Optional[logging.Logger] = None
+) -> Path | None:
     """
     Load environment variables from a .env file.
 
@@ -54,15 +58,20 @@ def load_env(env_file: str | Path | None = None, logger: Optional[logging.Logger
             logger.info(f"[load_env] Loaded environment variables from {env_path}")
             return env_path
 
-    logger.warning("[load_env] No .env file found. Environment variables may not be loaded.")
+    logger.warning(
+        "[load_env] No .env file found. Environment variables may not be loaded."
+    )
     return None
 
+
 # --------------------------
-# Logging Utils 
+# Logging Utils
 # --------------------------
+
 
 class PrefixedLogger:
     """Wrap a logger to automatically prepend a prefix to messages."""
+
     def __init__(self, logger: logging.Logger, prefix: str = "    "):
         self._logger = logger
         self._prefix = prefix
@@ -141,16 +150,18 @@ def setup_logger(
     # Ensure console output when debugging locally
     if debug:
         console_handler = logging.StreamHandler()
-        console_handler.setFormatter(logging.Formatter(
-            "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-        ))
+        console_handler.setFormatter(
+            logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+        )
         logger.addHandler(console_handler)
 
     return logger, log_file
 
+
 # --------------------------
-# Retry Utils 
+# Retry Utils
 # --------------------------
+
 
 def with_retries(
     fn: Callable[[], Any],
@@ -183,10 +194,11 @@ def with_retries(
                 raise
             time.sleep(backoff)
 
-    
+
 # --------------------------
-# Versioning Utils 
+# Versioning Utils
 # --------------------------
+
 
 def get_git_commit() -> str:
     """
@@ -201,17 +213,22 @@ def get_git_commit() -> str:
         or tracking the exact code used for a data processing run.
     """
     try:
-        commit_hash = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"],
-            stderr=subprocess.DEVNULL
-        ).decode().strip()
+        commit_hash = (
+            subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL
+            )
+            .decode()
+            .strip()
+        )
         return commit_hash
     except Exception:
         return "unknown"
 
+
 # --------------------------
-# Time Utils 
+# Time Utils
 # --------------------------
+
 
 def now_iso(timezone: ZoneInfo) -> str:
     """

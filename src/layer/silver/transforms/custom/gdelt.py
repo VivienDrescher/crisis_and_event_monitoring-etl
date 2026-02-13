@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Optional
-import pandas as pd
 import logging
+from typing import Optional
+
+import pandas as pd
 
 
 def build(df: pd.DataFrame, logger: Optional[logging.Logger] = None) -> pd.DataFrame:
@@ -23,7 +24,9 @@ def build(df: pd.DataFrame, logger: Optional[logging.Logger] = None) -> pd.DataF
     df = df.copy()
 
     if "event_date" not in df.columns:
-        logger.warning("[custom_transform_gdelt] Column 'event_date' not found; skipping transformation")
+        logger.warning(
+            "[custom_transform_gdelt] Column 'event_date' not found; skipping transformation"
+        )
         return df
 
     try:
@@ -31,14 +34,18 @@ def build(df: pd.DataFrame, logger: Optional[logging.Logger] = None) -> pd.DataF
             df["event_date"].astype(str),
             format="%Y%m%d",
             errors="coerce",  # invalid values → NaT
-            utc=True
+            utc=True,
         )
         num_missing = df["event_date"].isna().sum()
         if num_missing > 0:
-            logger.warning(f"[custom_transform_gdelt] {num_missing} 'event_date' values could not be parsed and became NaT")
+            logger.warning(
+                f"[custom_transform_gdelt] {num_missing} 'event_date' values could not be parsed and became NaT"
+            )
         else:
-            logger.info("[custom_transform_gdelt] 'event_date' successfully converted to datetime")
-    except Exception as e:
+            logger.info(
+                "[custom_transform_gdelt] 'event_date' successfully converted to datetime"
+            )
+    except Exception:
         logger.exception("[custom_transform_gdelt] Failed to transform 'event_date'")
         raise
 

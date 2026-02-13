@@ -1,25 +1,30 @@
 from __future__ import annotations
 
-from typing import Iterable, Optional, Dict, Tuple, Set
-from pathlib import Path 
-import pandas as pd
 import logging
+from pathlib import Path
+from typing import Dict, Iterable, Optional, Set, Tuple
 from zoneinfo import ZoneInfo
 
-from src.layer.silver.transforms.custom_registry import SILVER_DATASET_CUSTOM_TRANSFORMS
+import pandas as pd
+
 from src.layer.silver.metadata import add_silver_metadata
-from src.utils.schema_validation import enforce_schema, validate_required_columns, validate_columns_not_null
+from src.layer.silver.transforms.custom_registry import SILVER_DATASET_CUSTOM_TRANSFORMS
+from src.utils.dataframe import apply_column_renames, deduplicate, normalize_strings
 from src.utils.io import read_parquet
-from src.utils.dataframe import deduplicate, apply_column_renames, normalize_strings
+from src.utils.schema_validation import (
+    enforce_schema,
+    validate_columns_not_null,
+    validate_required_columns,
+)
 
 
 def process_bronze_to_silver(
     files: Iterable[Path],
-    table_name: str, 
+    table_name: str,
     silver_schema: Dict,
     run_id: str,
-    timezone: ZoneInfo, 
-    logger: Optional[logging.Logger] = None
+    timezone: ZoneInfo,
+    logger: Optional[logging.Logger] = None,
 ) -> Tuple[pd.DataFrame, Set[str]]:
     """
     Apply all Silver layer transformations to Bronze files for a given table.
@@ -47,18 +52,20 @@ def process_bronze_to_silver(
             - DataFrame with Silver transformations applied
             - Set of processed input file paths
     """
-    
+
     logger = logger or logging.getLogger(__name__)
 
     processed_input_files = set()
     dfs = []
 
     for num_file, bronze_file in enumerate(files, start=1):
-        logger.info(f"Processing Bronze file {num_file}/{len(files)}: {bronze_file.name}")
+        logger.info(
+            f"Processing Bronze file {num_file}/{len(files)}: {bronze_file.name}"
+        )
 
         df = read_parquet(bronze_file, logger=logger)
 
-        entry = SILVER_DATASET_CUSTOM_TRANSFORMS.get(table_name) 
+        entry = SILVER_DATASET_CUSTOM_TRANSFORMS.get(table_name)
         if not entry:
             raise ValueError(
                 f"[process_bronze_to_silver] No silver transform registered for dataset '{table_name}'"
@@ -67,14 +74,30 @@ def process_bronze_to_silver(
         transform_fn = entry["function"]
 
         silver_column_schema = silver_schema.get("columns")
-        schema_dtypes = { col: spec["type"] for col, spec in silver_column_schema.items() if "type" in spec}
-        required_cols = [col for col, spec in silver_column_schema.items() if spec.get("nullable") is False]
-        primary_keys = [col for col, spec in silver_column_schema.items() if spec.get("primary_key", False)]
+        schema_dtypes = {
+            col: spec["type"]
+            for col, spec in silver_column_schema.items()
+            if "type" in spec
+        }
+        required_cols = [
+            col
+            for col, spec in silver_column_schema.items()
+            if spec.get("nullable") is False
+        ]
+        primary_keys = [
+            col
+            for col, spec in silver_column_schema.items()
+            if spec.get("primary_key", False)
+        ]
         record_timestamp = silver_schema.get("record_timestamp")
 
-        # Extract bronze run metdata relevant for silver layer 
+        # Extract bronze run metdata relevant for silver layer
         bronze_run_id = df["_run_id"].iloc[0] if "_run_id" in df.columns else None
-        bronze_ingested_at = df["_bronze_ingested_at"].iloc[0] if "_bronze_ingested_at" in df.columns else None
+        bronze_ingested_at = (
+            df["_bronze_ingested_at"].iloc[0]
+            if "_bronze_ingested_at" in df.columns
+            else None
+        )
 
         # Rename columns
         df = apply_column_renames(df, silver_column_schema)
@@ -95,10 +118,10 @@ def process_bronze_to_silver(
         df = add_silver_metadata(
             df,
             bronze_run_id=bronze_run_id,
-            bronze_ingested_at = bronze_ingested_at,
+            bronze_ingested_at=bronze_ingested_at,
             silver_run_id=run_id,
             timezone=timezone,
-            logger=logger
+            logger=logger,
         )
 
         #  Validate schema
@@ -111,4 +134,4 @@ def process_bronze_to_silver(
     if not dfs:
         return None
 
-    return pd.concat(dfs, ignore_index=True), processed_input_files 
+    return pd.concat(dfs, ignore_index=True), processed_input_files

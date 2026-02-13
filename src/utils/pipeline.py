@@ -1,18 +1,19 @@
 from __future__ import annotations
 
-from pathlib import Path
+import json
 from datetime import datetime
+from pathlib import Path
 from typing import List, Set
 from zoneinfo import ZoneInfo
-import json
-import yaml
 
+import yaml
 
 from src.utils.system import get_git_commit, now_iso
 
 # --------------------------
-# Checkointing Utils 
+# Checkointing Utils
 # --------------------------
+
 
 def load_checkpoint(checkpoint_path: Path) -> Set[str]:
     """
@@ -44,7 +45,7 @@ def save_checkpoint(
     Args:
         checkpoint_path: Path to save the checkpoint file
         processed_files: Set of filenames that have been processed
-        timezone: Timezone to use for update timestamp of the checkpoint file 
+        timezone: Timezone to use for update timestamp of the checkpoint file
     """
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -71,17 +72,16 @@ def identify_new_files(
     Returns:
         List of file paths that are new (not in checkpoint_files)
     """
-    return [
-        f for f in files
-        if str(f) not in checkpoint_files
-    ]
+    return [f for f in files if str(f) not in checkpoint_files]
+
 
 # --------------------------
-# Metadata Utils 
+# Metadata Utils
 # --------------------------
+
 
 def save_run_metadata(
-    run_output_dir: Path, 
+    run_output_dir: Path,
     run_id: str,
     layer: str,
     table_name: str,
@@ -134,7 +134,7 @@ def save_run_metadata(
     metadata_file = runs_dir / f"run_{run_id}.yaml"
     run_metadata = {
         "run_id": run_id,
-        "git_commit": get_git_commit(), 
+        "git_commit": get_git_commit(),
         "layer": layer,
         "table": table_name,
         "log_file": str(log_file),

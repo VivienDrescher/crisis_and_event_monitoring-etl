@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Optional, Union, Tuple, List 
-import pandas as pd
 import logging
-import zipfile
-import requests
 import uuid
+import zipfile
+from pathlib import Path
+from typing import List, Optional, Tuple, Union
+
+import pandas as pd
+import requests
 
 from src.utils.dataframe import deduplicate
 from src.utils.storage import build_partition_path
@@ -16,7 +17,7 @@ def download_file_from_url(
     url: str,
     target_path: Path,
     timeout: int = 60,
-    logger: Optional[logging.Logger] = None
+    logger: Optional[logging.Logger] = None,
 ) -> bool:
     """
     Download a file from a URL.
@@ -35,13 +36,13 @@ def download_file_from_url(
     response = requests.get(url, timeout=timeout)
     if response.status_code == 404:
         logger.info(
-            f"[download_and_extract] File not found at URL (404). Skipping download."
+            "[download_and_extract] File not found at URL (404). Skipping download."
         )
         return False
     response.raise_for_status()
 
     target_path.write_bytes(response.content)
-    logger.info(f"[download_and_extract_file] Download complete.")
+    logger.info("[download_and_extract_file] Download complete.")
 
     return True
 
@@ -96,8 +97,7 @@ def read_tabular_file(
         if compression == "zip":
             with zipfile.ZipFile(file_path, "r") as z:
                 excel_files = [
-                    f for f in z.namelist()
-                    if f.lower().endswith((".xlsx", ".xls"))
+                    f for f in z.namelist() if f.lower().endswith((".xlsx", ".xls"))
                 ]
                 if not excel_files:
                     raise ValueError(f"No Excel file found in ZIP: {file_path}")
@@ -108,13 +108,15 @@ def read_tabular_file(
                 file_path = temp_dir / Path(excel_files[0]).name
                 z.extract(excel_files[0], path=temp_dir)
 
-                logger.info(f"[read_pipeline_source] Extracted {excel_files[0]} from ZIP")
-    
+                logger.info(
+                    f"[read_pipeline_source] Extracted {excel_files[0]} from ZIP"
+                )
+
         return pd.read_excel(file_path, engine=engine, **reader_params)
 
     else:
         raise ValueError(f"[read_source_table] Unsupported file type: {file_type}")
-    
+
 
 def read_parquet(
     file_path: Union[str, Path],
@@ -139,7 +141,9 @@ def read_parquet(
     file_path = Path(file_path)
     df = pd.read_parquet(file_path, columns=columns, filters=filters)
 
-    logger.info(f"[read_parquet] Read {len(df)} rows with {len(df.columns)} columns from {file_path}")
+    logger.info(
+        f"[read_parquet] Read {len(df)} rows with {len(df.columns)} columns from {file_path}"
+    )
     return df
 
 
@@ -159,12 +163,12 @@ def write_parquet(
         logger: Optional logger for informational messages
     """
     logger = logger or logging.getLogger(__name__)
-    
-    # Determine output paths 
+
+    # Determine output paths
     file_path = Path(file_path)
     tmp_path = file_path.with_suffix(file_path.suffix + f".{uuid.uuid4().hex}.tmp")
 
-    # Safe write 
+    # Safe write
     df.to_parquet(tmp_path, index=False, **(write_params or {}))
     tmp_path.replace(file_path)
 
@@ -191,7 +195,7 @@ def read_parquet_partition(
     """
     logger = logger or logging.getLogger(__name__)
 
-    # Verify the directory exists -> return empty df otherwise 
+    # Verify the directory exists -> return empty df otherwise
     if not partition_dir.exists():
         logger.info(f"[read_partition] Parition folder {partition_dir} not existing.")
         return pd.DataFrame(), []
@@ -252,11 +256,15 @@ def write_partitioned_parquet(
 
         if is_merge:
             if primary_keys is None or record_timestamp is None:
-                raise ValueError("primary_keys and record_timestamp must be provided for merge mode")
+                raise ValueError(
+                    "primary_keys and record_timestamp must be provided for merge mode"
+                )
             df_existing, _ = read_parquet_partition(partition_dir, logger)
             if df_existing is not None and not df_existing.empty:
                 df_partition = pd.concat([df_existing, df_partition], ignore_index=True)
-                df_partition = deduplicate(df_partition, primary_keys, record_timestamp, logger)
+                df_partition = deduplicate(
+                    df_partition, primary_keys, record_timestamp, logger
+                )
 
         output_file = partition_dir / "part.parquet"
         write_parquet(df_partition, output_file, logger=logger)

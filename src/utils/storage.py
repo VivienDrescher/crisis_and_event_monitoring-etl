@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Optional, Union, List, Tuple
 import logging
-import shutil 
+import shutil
+from pathlib import Path
+from typing import List, Optional, Tuple, Union
 
-    
+
 def clear_data_dir(
-    data_dir: Path, 
+    data_dir: Path,
     logger: Optional[logging.Logger] = None,
 ) -> None:
     """
@@ -17,7 +17,7 @@ def clear_data_dir(
         data_dir: Path to the directory to clear
         logger: Optional logger for informational messages
     """
-    
+
     logger = logger or logging.getLogger(__name__)
 
     for path in data_dir.glob("*"):
@@ -52,7 +52,7 @@ def replace_path_suffix(
 
     # Strip all suffixes
     base_name = path.stem
-    for _ in path.suffixes[1:]: 
+    for _ in path.suffixes[1:]:
         base_name = Path(base_name).stem
 
     if not new_suffix.startswith("."):

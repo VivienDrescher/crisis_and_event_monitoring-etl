@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Iterable, Optional
-import pandas as pd
 import logging
+from typing import Iterable, Optional
+
+import pandas as pd
 
 
 def deduplicate(
@@ -27,7 +28,7 @@ def deduplicate(
     """
     logger = logger or logging.getLogger(__name__)
 
-    # Validate primary keys 
+    # Validate primary keys
     if not primary_keys:
         logger.warning("[deduplicate] No primary key provided; skipping deduplication")
         return df
@@ -35,13 +36,17 @@ def deduplicate(
     valid_primary_keys = [c for c in primary_keys if c in df.columns]
     invalid_primary_keys = [c for c in primary_keys if c not in df.columns]
     if invalid_primary_keys:
-        logger.warning("[deduplicate] Bronze data is missing primary key columns; skipping deduplication")
+        logger.warning(
+            "[deduplicate] Bronze data is missing primary key columns; skipping deduplication"
+        )
         return df
 
-    # Validate timestamp column 
+    # Validate timestamp column
     if not record_timestamp or record_timestamp not in df.columns:
-        logger.warning("[deduplicate] No valid timestamp column found; skipping deduplication")
-        return df 
+        logger.warning(
+            "[deduplicate] No valid timestamp column found; skipping deduplication"
+        )
+        return df
 
     if not pd.api.types.is_datetime64_any_dtype(df[record_timestamp]):
         df[record_timestamp] = pd.to_datetime(df[record_timestamp], errors="coerce")
@@ -60,7 +65,9 @@ def deduplicate(
     return df_deduped
 
 
-def normalize_strings(df: pd.DataFrame, logger: Optional[logging.Logger] = None) -> pd.DataFrame:
+def normalize_strings(
+    df: pd.DataFrame, logger: Optional[logging.Logger] = None
+) -> pd.DataFrame:
     """
     Strip leading and trailing whitespace from all string columns in the DataFrame.
 

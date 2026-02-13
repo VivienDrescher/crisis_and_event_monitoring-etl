@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-import pandas as pd
-from typing import List, Optional, Dict
 import logging
+from typing import Dict, List, Optional
+
+import pandas as pd
 
 
 def enforce_schema(
     df: pd.DataFrame,
     schema_dtypes: Dict[str, str],
-    logger: Optional[logging.Logger] = None
+    logger: Optional[logging.Logger] = None,
 ) -> pd.DataFrame:
     """
     Enforce a schema on a DataFrame by casting column types and dropping extra columns.
@@ -35,9 +36,11 @@ def enforce_schema(
     df = df.loc[:, columns_to_keep].copy()
 
     for col, dtype in schema_dtypes.items():
-        # Log a warning if column is missing in df 
+        # Log a warning if column is missing in df
         if col not in df.columns:
-            raise ValueError(f"[enforce_schema] Column '{col}' specified in schema.yaml not found in dataframe.") from e
+            raise ValueError(
+                f"[enforce_schema] Column '{col}' specified in schema.yaml not found in dataframe."
+            )
 
         # Convert to the dtype specified in schemas.yaml
         try:
@@ -47,20 +50,22 @@ def enforce_schema(
             else:
                 df[col] = df[col].astype(dtype)
         except Exception as e:
-            raise ValueError(f"[enforce_schema] Failed casting column '{col}' to {dtype}") from e
-    
+            raise ValueError(
+                f"[enforce_schema] Failed casting column '{col}' to {dtype}"
+            ) from e
+
     if dropped_columns:
-        logger.info(f"[enforce_schema] Enforced datatypes. Dropped columns not in schema: {dropped_columns}")
+        logger.info(
+            f"[enforce_schema] Enforced datatypes. Dropped columns not in schema: {dropped_columns}"
+        )
     else:
-        logger.info(f"[enforce_schema] Enforced datatypes. No columns were dropped.")
+        logger.info("[enforce_schema] Enforced datatypes. No columns were dropped.")
 
     return df
 
 
 def validate_required_columns(
-    df: pd.DataFrame,
-    required_columns: List[str],
-    logger: logging.Logger
+    df: pd.DataFrame, required_columns: List[str], logger: logging.Logger
 ) -> None:
     """
     Ensure that all specified columns are present in the DataFrame.
@@ -77,15 +82,15 @@ def validate_required_columns(
 
     missing = [c for c in required_columns if c not in df.columns]
     if missing:
-        raise ValueError(f"[validate_required_columns] Missing required columns: {missing}")
+        raise ValueError(
+            f"[validate_required_columns] Missing required columns: {missing}"
+        )
 
-    logger.info(f"[validate_required_columns] Column validation successful")
+    logger.info("[validate_required_columns] Column validation successful")
 
 
 def validate_columns_not_null(
-    df: pd.DataFrame,
-    non_nullable_columns: List[str],
-    logger: logging.Logger
+    df: pd.DataFrame, non_nullable_columns: List[str], logger: logging.Logger
 ) -> None:
     """
     Ensure that the non-nullable columns do not contain null values.
@@ -103,6 +108,8 @@ def validate_columns_not_null(
     nulls = df[non_nullable_columns].isna().any()
     failing = nulls[nulls].index.tolist()
     if failing:
-        raise ValueError(f"[ validate_columns_not_null] Null values found in required columns: {failing}")
+        raise ValueError(
+            f"[ validate_columns_not_null] Null values found in required columns: {failing}"
+        )
 
-    logger.info(f"[validate_columns_not_null] Non-NULL validation successful")
+    logger.info("[validate_columns_not_null] Non-NULL validation successful")

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import pandas as pd
 import logging
 from typing import Optional
 from zoneinfo import ZoneInfo
+
+import pandas as pd
 
 from src.utils.system import now_iso
 
@@ -13,7 +14,7 @@ def add_bronze_metadata(
     source_name: str,
     source_file: str,
     bronze_run_id: str,
-    timezone: ZoneInfo, 
+    timezone: ZoneInfo,
     logger: Optional[logging.Logger] = None,
 ) -> pd.DataFrame:
     """
@@ -38,6 +39,6 @@ def add_bronze_metadata(
     df["_source_file"] = source_file
     df["_bronze_run_id"] = bronze_run_id
 
-    logger.info(f"[add_bronze_metadata] Bronze metadata added")
+    logger.info("[add_bronze_metadata] Bronze metadata added")
 
     return df

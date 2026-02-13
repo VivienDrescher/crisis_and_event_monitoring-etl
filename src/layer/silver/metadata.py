@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import pandas as pd
-import logging 
-from typing import Optional
+import logging
 from datetime import datetime
+from typing import Optional
 from zoneinfo import ZoneInfo
+
+import pandas as pd
 
 from src.utils.system import now_iso
 
@@ -14,7 +15,7 @@ def add_silver_metadata(
     bronze_run_id: str,
     bronze_ingested_at: datetime,
     silver_run_id: str,
-    timezone: ZoneInfo, 
+    timezone: ZoneInfo,
     logger: Optional[logging.Logger] = None,
 ) -> pd.DataFrame:
     """
@@ -23,11 +24,11 @@ def add_silver_metadata(
     Args:
         df: Silver DataFrame
         bronze_run_id: Bronze ingestion run ID
-        bronze_ingested_at: Bronze ingestion timestamp 
+        bronze_ingested_at: Bronze ingestion timestamp
         silver_run_id: Silver ingestion run ID
-        
+
         logger: Optional logger for informational mtimezone: Timezone to use for the _silver_ingested_at timestamp (ZoneInfo)essages
-        
+
     Returns:
         DataFrame enriched with Silver metadata
     """
@@ -39,6 +40,6 @@ def add_silver_metadata(
     df["_bronze_ingested_at"] = bronze_ingested_at
     df["_bronze_run_id"] = bronze_run_id
 
-    logger.info(f"[add_silver_metadata] Silver metadata added")
+    logger.info("[add_silver_metadata] Silver metadata added")
 
     return df

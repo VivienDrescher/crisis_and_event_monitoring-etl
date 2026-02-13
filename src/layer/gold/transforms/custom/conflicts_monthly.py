@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import logging
+from typing import Dict
+
 import pandas as pd
-from typing import Dict 
 
 
 def build(
@@ -22,9 +23,13 @@ def build(
 
     # Extract the required input tables
     if "acled_monthly" not in dfs:
-        raise ValueError("[conflicts_monthly_report] Input 'acled_monthly' table not found in dfs")
+        raise ValueError(
+            "[conflicts_monthly_report] Input 'acled_monthly' table not found in dfs"
+        )
     if "gdelt_monthly" not in dfs:
-        raise ValueError("[conflicts_monthly_report] Input 'gdelt_monthly' table not found in dfs")
+        raise ValueError(
+            "[conflicts_monthly_report] Input 'gdelt_monthly' table not found in dfs"
+        )
     gdelt_monthly = dfs["gdelt_monthly"].copy()
     acled_monthly = dfs["acled_monthly"].copy()
 
@@ -33,7 +38,7 @@ def build(
         gdelt_monthly["month_start_date"]
     )
     acled_monthly["month_start_date"] = pd.to_datetime(
-        acled_monthly["month_start_date"], utc=True
+        acled_monthly["month_start_date"]
     )
 
     # Rename metrics to avoid collisions and match schema

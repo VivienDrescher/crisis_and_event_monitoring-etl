@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import logging
+from typing import Dict
+
 import pandas as pd
-from typing import Dict 
+
 
 def build(
     dfs: Dict[str, pd.DataFrame],
@@ -18,7 +20,7 @@ def build(
     Returns:
         DataFrame with daily GDELT metrics
     """
-    
+
     logger.info("[gdelt_daily] Building daily GDEDLT metrics")
 
     # Extract the required input tables
@@ -26,15 +28,12 @@ def build(
         raise ValueError("[daily_gdelt] Input 'gdelt' table not found in dfs")
     df_gdelt = dfs["gdelt"].copy()
 
-    # Aggregate metrics 
-    gdelt_daily = (
-        df_gdelt.groupby("event_date", as_index=False)
-            .agg(
-                total_events=("event_id", "nunique"),
-                avg_tone=("avg_tone", "mean"),
-                total_mentions=("num_mentions", "sum"),
-                total_articles=("num_articles", "sum")
-            )
+    # Aggregate metrics
+    gdelt_daily = df_gdelt.groupby("event_date", as_index=False).agg(
+        total_events=("event_id", "nunique"),
+        avg_tone=("avg_tone", "mean"),
+        total_mentions=("num_mentions", "sum"),
+        total_articles=("num_articles", "sum"),
     )
 
     logger.info("[gdelt_daily] Produced %s monthly rows", len(gdelt_daily))

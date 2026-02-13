@@ -1,17 +1,28 @@
+import argparse
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
-import yaml
-import argparse
-from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from src.layer.bronze.transforms import process_bronze_file
+import yaml
 
-from src.utils.storage import replace_path_suffix
+from src.layer.bronze.transforms import process_bronze_file
 from src.utils.io import download_file_from_url
-from src.utils.system import get_date_range, load_env, with_retries, setup_logger, PrefixedLogger
-from src.utils.pipeline import save_run_metadata, load_checkpoint, save_checkpoint, identify_new_files
+from src.utils.pipeline import (
+    identify_new_files,
+    load_checkpoint,
+    save_checkpoint,
+    save_run_metadata,
+)
+from src.utils.storage import replace_path_suffix
+from src.utils.system import (
+    PrefixedLogger,
+    get_date_range,
+    load_env,
+    setup_logger,
+    with_retries,
+)
 
 LAYER_NAME = "bronze"
 
@@ -33,12 +44,14 @@ DOWNLOAD_TIMEOUT = int(os.getenv("DOWNLOAD_TIMEOUT", 60))
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", 3))
 RETRY_BACKOFF = int(os.getenv("RETRY_BACKOFF", 5))
 
+
 # --------------------------
 # Load configs
 # --------------------------
 def load_yaml(path):
     with open(path) as f:
         return yaml.safe_load(f)
+
 
 sources_config = load_yaml(Path(CONFIG_PATH) / "sources.yaml")
 pipeline_config = load_yaml(Path(CONFIG_PATH) / "pipeline.yaml")
@@ -53,7 +66,9 @@ timezone = ZoneInfo(PIPELINE_TIMEZONE)
 # CLI arguments
 # --------------------------
 parser = argparse.ArgumentParser(description="Bronze ingestion")
-parser.add_argument("--table", type=str, required=True, help="Name of bronze table, e.g., gdelt")
+parser.add_argument(
+    "--table", type=str, required=True, help="Name of bronze table, e.g., gdelt"
+)
 args = parser.parse_args()
 table_name = args.table.lower()
 
@@ -65,16 +80,16 @@ run_id = run_start_time.strftime("%Y%m%d_%H%M%S")
 # --------------------------
 logger, log_file = setup_logger(
     name=f"{PIPELINE_NAME}.{LAYER_NAME}.{table_name}",
-    log_dir=LOG_PATH, 
+    log_dir=LOG_PATH,
     debug=DEBUG,
     log_level=LOG_LEVEL,
-    log_config=logging_config
+    log_config=logging_config,
 )
 prefixed_logger = PrefixedLogger(logger)
 logger.info(f"Starting {LAYER_NAME} pipeline for table {table_name}")
 
 # --------------------------
-# Validate source + schema 
+# Validate source + schema
 # --------------------------
 if table_name not in sources_config["sources"]:
     raise ValueError(f"Source {table_name} not found in sources.yaml")
@@ -107,15 +122,19 @@ runs_dir.mkdir(exist_ok=True)
 # --------------------------
 # Pipeline date range
 # --------------------------
-pipeline_start_date = datetime.strptime(pipeline_config["pipeline"]["execution"].get("start_date"), "%Y-%m-%d").replace(tzinfo=timezone)
+pipeline_start_date = datetime.strptime(
+    pipeline_config["pipeline"]["execution"].get("start_date"), "%Y-%m-%d"
+).replace(tzinfo=timezone)
 pipeline_end_date_str = pipeline_config["pipeline"]["execution"].get("end_date")
-if pipeline_end_date_str: 
-    pipeline_end_date = datetime.strptime(pipeline_end_date_str, "%Y-%m-%d").replace(tzinfo=timezone)
+if pipeline_end_date_str:
+    pipeline_end_date = datetime.strptime(pipeline_end_date_str, "%Y-%m-%d").replace(
+        tzinfo=timezone
+    )
 else:
     pipeline_end_date = datetime.now(tz=timezone)
 
 # --------------------------
-# Identification of files to process 
+# Identification of files to process
 # --------------------------
 checkpoint_path = bronze_dir / "_checkpoint.json"
 checkpoint_files_old = load_checkpoint(checkpoint_path)
@@ -135,9 +154,9 @@ if aquisition_method == "manual_drop":
         # Reprocess all landing files
         file_candidates = landing_files
 
-    else: 
+    else:
         raise ValueError(f"Unknown ingestion_mode {ingestion_mode}")
-    
+
 elif aquisition_method == "http_download":
     # Generate potential remote files from date range (newest first)
     filename_pattern = source_config["path_template"]["filename_pattern"]
@@ -145,10 +164,12 @@ elif aquisition_method == "http_download":
 
     file_candidates = []
     for date in reversed(get_date_range(pipeline_start_date, pipeline_end_date)):
-        filename = filename_pattern.format(year=date.year, month=date.month, day=date.day)
+        filename = filename_pattern.format(
+            year=date.year, month=date.month, day=date.day
+        )
         file_candidates.append((f"{base_url}/{filename}", landing_dir / filename))
 
-else: 
+else:
     raise ValueError(f"Unknown source_type {aquisition_method}")
 
 logger.info(f"Identified {len(file_candidates)} candidate files.")
@@ -156,15 +177,14 @@ logger.info(f"Identified {len(file_candidates)} candidate files.")
 # --------------------------
 # Process files
 # --------------------------
-processed_input_files =  set()
+processed_input_files = set()
 processed_output_files = set()
 
 num_skipped_existent = 0
 num_skipped_nonexistent = 0
-found_latest_snapshot = False 
+found_latest_snapshot = False
 
 for file_count, candidate in enumerate(file_candidates, start=1):
-    
     # Stop early once the newest available snapshot is processed
     if ingestion_mode == "latest_snapshot" and found_latest_snapshot:
         break
@@ -176,13 +196,17 @@ for file_count, candidate in enumerate(file_candidates, start=1):
         input_file = candidate
         url = None
 
-    logger.info(f"Iterating over candidate file {file_count}/{len(file_candidates)}: {input_file.name}")
+    logger.info(
+        f"Iterating over candidate file {file_count}/{len(file_candidates)}: {input_file.name}"
+    )
 
     bronze_path = replace_path_suffix(bronze_dir / input_file.name, "parquet")
 
     # Skip already processed files for append or latest_snapshot
     if ingestion_mode != "overwrite" and bronze_path.exists():
-        prefixed_logger.info(f"[Skipping file] {bronze_path.name} already exists. Skipping download")
+        prefixed_logger.info(
+            f"[Skipping file] {bronze_path.name} already exists. Skipping download"
+        )
         num_skipped_existent += 1
 
         if ingestion_mode == "latest_snapshot":
@@ -195,15 +219,12 @@ for file_count, candidate in enumerate(file_candidates, start=1):
     def process_file():
         if url:
             exists = download_file_from_url(
-                url, 
-                input_file, 
-                timeout=DOWNLOAD_TIMEOUT, 
-                logger=prefixed_logger
+                url, input_file, timeout=DOWNLOAD_TIMEOUT, logger=prefixed_logger
             )
             if not exists:
                 prefixed_logger.info(f"[File not existent] {input_file.name}")
                 return None
-            
+
         return process_bronze_file(
             input_path=input_file,
             output_path=bronze_path,
@@ -211,10 +232,10 @@ for file_count, candidate in enumerate(file_candidates, start=1):
             source_config=source_config,
             bronze_schema=bronze_schema,
             run_id=run_id,
-            timezone=timezone, 
+            timezone=timezone,
             logger=prefixed_logger,
         )
-    
+
     output = with_retries(
         process_file,
         max_retries=MAX_RETRIES,
@@ -233,7 +254,7 @@ for file_count, candidate in enumerate(file_candidates, start=1):
     else:
         num_skipped_nonexistent += 1
 
-# Update checkpoint file 
+# Update checkpoint file
 if processed_input_files:
     updated_files = checkpoint_files_old | processed_input_files
     save_checkpoint(checkpoint_path, updated_files, timezone)
@@ -260,9 +281,9 @@ metadata_file = save_run_metadata(
     pipeline_config=pipeline_config,
     schema_config=schemas_config,
     input_files=processed_input_files,
-    output_files=processed_output_files, 
+    output_files=processed_output_files,
     source_configs=source_config,
-    start_time=run_start_time
+    start_time=run_start_time,
 )
 
 logger.info(f"Saved run metadata: {metadata_file}")
