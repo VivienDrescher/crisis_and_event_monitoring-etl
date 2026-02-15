@@ -16,6 +16,8 @@ from src.utils.io import (
     write_parquet,
 )
 from src.utils.pipeline import save_run_metadata
+from src.utils.schema import get_record_timestamp_column
+from src.utils.storage import clear_data_dir
 from src.utils.system import PrefixedLogger, get_date_range, load_env, setup_logger
 
 LAYER_NAME = "gold"
@@ -147,6 +149,9 @@ for input, config in inputs.items():
             silver_layout = "partitioned"
 
         source_configs[input_name] = source_config
+        silver_column_schema = schemas_config["schemas"]["silver"][input_name].get(
+            "columns"
+        )
 
         # Silver layout: snapshot (process only one silver file)
         if silver_layout == "snapshot":
@@ -163,18 +168,27 @@ for input, config in inputs.items():
                     f"More than 1 Silver Parquet file found for {input_name}"
                 )
 
-            prefixed_logger.info(f"Reading 1/1 parquet files from {silver_dir}")
+            logger.info(f"Reading 1/1 parquet files from {silver_dir}")
             silver_input_file = silver_input_files[-1]
             df_silver = read_parquet(silver_input_file, logger=prefixed_logger)
-            dfs_input[input_name] = df_silver
+
+            # Filter for data within pipeline range
+            record_timestamp = get_record_timestamp_column(silver_column_schema)
+            df_silver_filtered = df_silver[
+                (df_silver[record_timestamp] >= pipeline_start_date)
+                & (df_silver[record_timestamp] <= pipeline_end_date)
+            ]
+            logger.info(
+                f"[Pipeline range filter] Filtered {len(df_silver_filtered)}/{len(df_silver)} rows "
+                f"using '{record_timestamp}' between {pipeline_start_date} and {pipeline_end_date}."
+            )
+
+            dfs_input[input_name] = df_silver_filtered
             processed_input_files.add(str(silver_input_file))
 
         # Silver layout: paritioned (process all silver partitions within pipeline range)
         else:
             # Get only parition values within pipeline range
-            silver_column_schema = schemas_config["schemas"]["silver"][input_name].get(
-                "columns"
-            )
             silver_partition_keys = [
                 col
                 for col, spec in silver_column_schema.items()
@@ -212,9 +226,7 @@ for input, config in inputs.items():
     # Input table layer: Gold
     elif layer_name == "gold":
         gold_input_dir = Path(GOLD_PATH) / input_name
-        gold_input_files = sorted(
-            gold_input_dir.glob("*.parquet"), key=lambda f: f.stat().st_mtime
-        )
+        gold_input_files = list(gold_input_dir.glob("*.parquet"))
 
         if not gold_input_files:
             prefixed_logger.info(
@@ -222,9 +234,12 @@ for input, config in inputs.items():
             )
             sys.exit(0)
 
+        if len(gold_input_files) > 1:
+            raise ValueError(f"More than 1 Gold Parquet file found for {input_name}")
+
         # Read the latest gold table
         prefixed_logger.info(
-            f"[Read Table] Reading the latest file from {gold_input_dir}"
+            f"[Read Table] Reading the report file from {gold_input_dir}"
         )
         gold_input_file = gold_input_files[-1]
         df_gold = read_parquet(gold_input_file, logger=prefixed_logger)
@@ -239,8 +254,11 @@ df_gold = process_silver_to_gold(
     dfs=dfs_input,
     gold_table_name=table_name,
     gold_column_schema=gold_column_schema,
-    logger=prefixed_logger,
+    logger=logger,
 )
+
+# Drop outdated reports form the output directory
+clear_data_dir(gold_dir, logger)
 
 # Write gold as Parquet safely
 gold_output_path = gold_dir / f"{run_id}.parquet"

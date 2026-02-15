@@ -6,7 +6,7 @@ from typing import Dict, Optional
 import pandas as pd
 
 from src.layer.gold.transforms.custom_registry import GOLD_DATASET_TRANSFORMS
-from src.utils.schema_validation import (
+from src.utils.schema import (
     enforce_schema,
     validate_columns_not_null,
     validate_required_columns,

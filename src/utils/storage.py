@@ -25,7 +25,7 @@ def clear_data_dir(
             shutil.rmtree(path)
         else:
             path.unlink()
-    logger.info("Cleared existing data directory")
+    logger.info("[Clear directory] Cleared existing data directory")
 
 
 def replace_path_suffix(

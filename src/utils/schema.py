@@ -113,3 +113,32 @@ def validate_columns_not_null(
         )
 
     logger.info("[validate_columns_not_null] Non-NULL validation successful")
+
+
+def get_record_timestamp_column(
+    column_schema: Dict[str, Dict[str, any]],
+) -> Optional[str]:
+    """
+    Identify the column in the schema marked as the record timestamp.
+
+    Args:
+        column_schema: Dictionary of column_name -> column_spec from schema.yaml
+
+    Returns:
+        The column name that is marked as record_timestamp.
+
+    Raises:
+        ValueError: If more than one column is marked as record_timestamp.
+    """
+    record_timestamps = [
+        col for col, spec in column_schema.items() if spec.get("record_timestamp")
+    ]
+
+    if not record_timestamps:
+        return None
+    elif len(record_timestamps) > 1:
+        raise ValueError(
+            f"More than one record_timestamp found in schema: {record_timestamps}"
+        )
+
+    return record_timestamps[0]

@@ -7,7 +7,6 @@ env/
 # Data
 data/
 
-
 # Secrets
 .env
 
@@ -22,3 +21,6 @@ data/_runs/
 
 # VSCode 
 .vscode/
+
+# Ruff
+.ruff_cache 

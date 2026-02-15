@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 from src.layer.bronze.metadata import add_bronze_metadata
 from src.utils.io import read_tabular_file, write_parquet
-from src.utils.schema_validation import validate_required_columns
+from src.utils.schema import validate_required_columns
 
 
 def process_bronze_file(

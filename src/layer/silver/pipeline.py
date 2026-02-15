@@ -164,7 +164,7 @@ elif ingestion_mode == "overwrite":
         sys.exit(0)
 
     # Global deduplication
-    df = deduplicate(df, primary_keys, record_timestamp, prefixed_logger)
+    df = deduplicate(df, primary_keys, logger=prefixed_logger)
 
     logger.info("Writing the processed Broze files to Silver partitions.")
     processed_output_files = write_partitioned_parquet(

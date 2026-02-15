@@ -11,7 +11,7 @@ from src.layer.silver.metadata import add_silver_metadata
 from src.layer.silver.transforms.custom_registry import SILVER_DATASET_CUSTOM_TRANSFORMS
 from src.utils.dataframe import apply_column_renames, deduplicate, normalize_strings
 from src.utils.io import read_parquet
-from src.utils.schema_validation import (
+from src.utils.schema import (
     enforce_schema,
     validate_columns_not_null,
     validate_required_columns,
@@ -89,7 +89,6 @@ def process_bronze_to_silver(
             for col, spec in silver_column_schema.items()
             if spec.get("primary_key", False)
         ]
-        record_timestamp = silver_schema.get("record_timestamp")
 
         # Extract bronze run metdata relevant for silver layer
         bronze_run_id = df["_run_id"].iloc[0] if "_run_id" in df.columns else None
@@ -109,7 +108,7 @@ def process_bronze_to_silver(
         df = normalize_strings(df, logger)
 
         # Deduplicate
-        df = deduplicate(df, primary_keys, record_timestamp, logger)
+        df = deduplicate(df, primary_keys, logger=logger)
 
         # Enforce silver schema (types + drop extra columns)
         df = enforce_schema(df, schema_dtypes, logger)

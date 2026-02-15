@@ -36,6 +36,4 @@ def build(
         total_articles=("num_articles", "sum"),
     )
 
-    logger.info("[gdelt_daily] Produced %s monthly rows", len(gdelt_daily))
-
     return gdelt_daily

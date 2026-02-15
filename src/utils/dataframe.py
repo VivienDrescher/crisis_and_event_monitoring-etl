@@ -9,7 +9,7 @@ import pandas as pd
 def deduplicate(
     df: pd.DataFrame,
     primary_keys: Iterable[str],
-    record_timestamp: Optional[str],
+    version_timestamp: Optional[str] = "_bronze_ingested_at",
     logger: Optional[logging.Logger] = None,
 ) -> pd.DataFrame:
     """
@@ -20,7 +20,7 @@ def deduplicate(
     Args:
         df: Input DataFrame
         primary_key: Iterable of column names defining the primary key
-        record_timestamp: Column used to determine latest record
+        version_timestamp: Column used to determine latest record
         logger: Optional logger
 
     Returns:
@@ -42,24 +42,24 @@ def deduplicate(
         return df
 
     # Validate timestamp column
-    if not record_timestamp or record_timestamp not in df.columns:
+    if not version_timestamp or version_timestamp not in df.columns:
         logger.warning(
             "[deduplicate] No valid timestamp column found; skipping deduplication"
         )
         return df
 
-    if not pd.api.types.is_datetime64_any_dtype(df[record_timestamp]):
-        df[record_timestamp] = pd.to_datetime(df[record_timestamp], errors="coerce")
+    if not pd.api.types.is_datetime64_any_dtype(df[version_timestamp]):
+        df[version_timestamp] = pd.to_datetime(df[version_timestamp], errors="coerce")
 
     # Keep row with max timestamp per primary key ---
-    index = df.groupby(valid_primary_keys)[record_timestamp].idxmax()
+    index = df.groupby(valid_primary_keys)[version_timestamp].idxmax()
     df_deduped = df.loc[index].copy()
 
     if len(df) != len(df_deduped):
         logger.info(
             f"[deduplicate] Reduced {len(df)} → {len(df_deduped)} rows "
             f"keeping latest per {valid_primary_keys} "
-            f"based on '{record_timestamp}'."
+            f"based on '{version_timestamp}'."
         )
 
     return df_deduped

@@ -21,7 +21,7 @@ schemas:
     acled:
       columns:
         country:          { source: COUNTRY, type: string, nullable: false, primary_key: true }
-        month_start_date: { source: month_start_date, type: "datetime64[ns]", nullable: false, primary_key: true }
+        month_start_date: { source: month_start_date, type: "datetime64[ns]", nullable: false, primary_key: true, record_timestamp: true }
         num_events:       { source: EVENTS, type: int64, nullable: false }
 
     gdelt:
@@ -30,15 +30,13 @@ schemas:
 
       columns: 
         event_id:     { source: GLOBALEVENTID, type: string, nullable: false, primary_key: true }
-        event_date:   { source: SQLDATE, type: "datetime64[ns]", nullable: false, partition_key: true }
+        event_date:   { source: SQLDATE, type: "datetime64[ns]", nullable: false, partition_key: true, record_timestamp: true }
         actor1_name:  { source: Actor1Name, type: string }
         actor2_name:  { source: Actor2Name, type: string }
         num_mentions: { source: NumMentions, type: Int64 }
         num_sources:  { source: NumSources, type: Int64 }
         num_articles: { source: NumArticles, type: Int64 }
         avg_tone:     { source: AvgTone, type: Float64 }
-
-      record_timestamp: _bronze_ingested_at
 
   gold: 
 
@@ -81,7 +79,7 @@ schemas:
         acled: { layer: gold, table_name: acled_monthly }
 
       columns:
-        month_start_date:   { type: "datetime64[ns]", nullable: false}
+        month_start_date:   { type: "datetime64[ns]", nullable: false }
         gdelt_total_events: { type: Int64 }
         gdelt_avg_tone:     { type: Float64 }
         acled_total_events: { type: Int64 }

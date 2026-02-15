@@ -32,6 +32,4 @@ def build(
         total_events=("num_events", "sum"),
     )
 
-    logger.info("[acled_monthly] Produced %s rows", len(acled_monthly))
-
     return acled_monthly

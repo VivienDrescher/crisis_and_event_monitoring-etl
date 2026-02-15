@@ -61,6 +61,4 @@ def build(
         how="outer",
     )
 
-    logger.info("[conflicts_monthly] Produced %s rows", len(conflicts_monthly))
-
     return conflicts_monthly
