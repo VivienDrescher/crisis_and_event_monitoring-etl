@@ -28,6 +28,9 @@ def build(
         raise ValueError("[daily_gdelt] Input 'gdelt' table not found in dfs")
     df_gdelt = dfs["gdelt"].copy()
 
+    # Ensure datetime type for aggregation
+    df_gdelt["event_date"] = pd.to_datetime(df_gdelt["event_date"], errors="coerce")
+
     # Aggregate metrics
     gdelt_daily = df_gdelt.groupby("event_date", as_index=False).agg(
         total_events=("event_id", "nunique"),

@@ -231,17 +231,17 @@ def read_parquet_partition(
 
     # Verify the directory exists -> return empty df otherwise
     if not partition_dir.exists():
-        logger.info(f"[read_partition] Parition folder {partition_dir} not existing.")
+        logger.info(f"[read_partition] Partition folder {partition_dir} not existing.")
         return pd.DataFrame(), []
 
-    # Read all files from the parition folder
-    parition_files = list(partition_dir.glob("*.parquet"))
-    if not parition_files:
+    # Read all files from the partition folder
+    partition_files = list(partition_dir.glob("*.parquet"))
+    if not partition_files:
         return pd.DataFrame(), []
-    dfs = [pd.read_parquet(f) for f in parition_files]
-    logger.info(f"[read_partition] Red Parition folder {partition_dir}.")
+    dfs = [pd.read_parquet(f) for f in partition_files]
+    logger.info(f"[read_partition] Red Partition folder {partition_dir}.")
 
-    return pd.concat(dfs, ignore_index=True), parition_files
+    return pd.concat(dfs, ignore_index=True), partition_files
 
 
 def write_partitioned_parquet(
