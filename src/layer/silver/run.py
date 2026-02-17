@@ -4,7 +4,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from src.layer.silver.transforms.common import process_bronze_to_silver
-from src.utils.dataframe import deduplicate
+from src.utils.dataframe import deduplicate, get_record_timestamp_column
 from src.utils.io import load_yaml, write_parquet, write_partitioned_parquet
 from src.utils.run import (
     identify_new_files,
@@ -118,21 +118,14 @@ def run():
         primary_keys = [
             col for col, spec in column_schema.items() if spec.get("primary_key", False)
         ]
-        record_timestamps = [
-            col
-            for col, spec in column_schema.items()
-            if spec.get("record_timestamp", False)
-        ]
+        if not primary_keys:
+            raise ValueError(f"No primary key provided for table {table_name}")
+        record_timestamp = get_record_timestamp_column(column_schema)
         partition_keys = [
             col
             for col, spec in column_schema.items()
             if spec.get("partition_key", False)
         ]
-        if len(record_timestamps) > 1:
-            raise ValueError(
-                f"More than 1 Silver record timestamp file found for {table_name}"
-            )
-        record_timestamp = record_timestamps[-1]
 
         checkpoint_path = silver_dir / "_checkpoint.json"
         checkpoint_files_old = load_checkpoint(checkpoint_path)

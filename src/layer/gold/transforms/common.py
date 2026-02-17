@@ -5,12 +5,15 @@ from typing import Dict, Optional
 
 import pandas as pd
 
-from src.layer.gold.transforms.custom_registry import GOLD_DATASET_TRANSFORMS
-from src.utils.schema import (
-    enforce_schema,
-    validate_columns_not_null,
-    validate_required_columns,
+from src.data_quality_checks import (
+    check_column_types,
+    check_non_nullable_columns,
+    check_primary_key_uniqueness,
+    check_primary_keys_exist,
+    check_required_columns,
 )
+from src.layer.gold.transforms.custom_registry import GOLD_DATASET_TRANSFORMS
+from src.utils.dataframe import cast_to_schema
 
 
 def process_silver_to_gold(
@@ -49,13 +52,24 @@ def process_silver_to_gold(
     schema_dtypes = {
         col: spec["type"] for col, spec in gold_column_schema.items() if "type" in spec
     }
-    df_gold = enforce_schema(df_gold, schema_dtypes, logger)
+    df_gold = cast_to_schema(df_gold, schema_dtypes, logger)
 
     # Validate required columns and NOT NULL constraints
-    required_cols = [
+    required_cols = [col for col, _ in gold_column_schema.items()]
+    non_nullable_cols = [
         col for col, spec in gold_column_schema.items() if spec.get("nullable") is False
     ]
-    validate_required_columns(df_gold, required_cols, logger)
-    validate_columns_not_null(df_gold, required_cols, logger)
+    primary_keys = [
+        col
+        for col, spec in gold_column_schema.items()
+        if spec.get("primary_key", False)
+    ]
+
+    #  Data Quality Checks
+    check_required_columns(df_gold, required_cols, logger)
+    check_non_nullable_columns(df_gold, non_nullable_cols, logger)
+    check_primary_keys_exist(df_gold, primary_keys, logger)
+    check_primary_key_uniqueness(df_gold, primary_keys, logger)
+    check_column_types(df_gold, schema_dtypes, logger)
 
     return df_gold

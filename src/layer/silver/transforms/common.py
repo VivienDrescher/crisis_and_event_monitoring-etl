@@ -7,15 +7,22 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from src.data_quality_checks import (
+    check_column_types,
+    check_non_nullable_columns,
+    check_primary_key_uniqueness,
+    check_primary_keys_exist,
+    check_required_columns,
+)
 from src.layer.silver.metadata import add_silver_metadata
 from src.layer.silver.transforms.custom_registry import SILVER_DATASET_CUSTOM_TRANSFORMS
-from src.utils.dataframe import apply_column_renames, deduplicate, normalize_strings
-from src.utils.io import read_parquet
-from src.utils.schema import (
-    enforce_schema,
-    validate_columns_not_null,
-    validate_required_columns,
+from src.utils.dataframe import (
+    apply_column_renames,
+    cast_to_schema,
+    deduplicate,
+    normalize_strings,
 )
+from src.utils.io import read_parquet
 
 
 def process_bronze_to_silver(
@@ -79,7 +86,8 @@ def process_bronze_to_silver(
             for col, spec in silver_column_schema.items()
             if "type" in spec
         }
-        required_cols = [
+        required_cols = [col for col, _ in silver_column_schema.items()]
+        non_nullable_cols = [
             col
             for col, spec in silver_column_schema.items()
             if spec.get("nullable") is False
@@ -108,10 +116,11 @@ def process_bronze_to_silver(
         df = normalize_strings(df, logger)
 
         # Deduplicate
+        check_primary_keys_exist(df, primary_keys, logger)
         df = deduplicate(df, primary_keys, logger=logger)
 
         # Enforce silver schema (types + drop extra columns)
-        df = enforce_schema(df, schema_dtypes, logger)
+        df = cast_to_schema(df, schema_dtypes, logger)
 
         # Add Silver metadata
         df = add_silver_metadata(
@@ -123,9 +132,11 @@ def process_bronze_to_silver(
             logger=logger,
         )
 
-        #  Validate schema
-        validate_required_columns(df, required_cols, logger)
-        validate_columns_not_null(df, required_cols, logger)
+        #  Data Quality Checks
+        check_required_columns(df, required_cols, logger)
+        check_non_nullable_columns(df, non_nullable_cols, logger)
+        check_primary_key_uniqueness(df, primary_keys, logger)
+        check_column_types(df, schema_dtypes, logger)
 
         dfs.append(df)
         processed_input_files.add(str(bronze_file))

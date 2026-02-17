@@ -10,6 +10,10 @@ import pandas as pd
 import requests
 import yaml
 
+from src.data_quality_checks import (
+    check_partition_keys_exist,
+    check_record_timestamp,
+)
 from src.utils.dataframe import deduplicate
 from src.utils.storage import build_partition_path
 
@@ -271,6 +275,9 @@ def write_partitioned_parquet(
     logger = logger or logging.getLogger(__name__)
     files_written = set()
 
+    check_partition_keys_exist(df, partition_keys, logger)
+    check_record_timestamp(df, record_timestamp, logger)
+
     if df.empty:
         logger.info("Empty DataFrame provided, nothing to write.")
         return files_written
@@ -289,10 +296,6 @@ def write_partitioned_parquet(
         partition_dir.mkdir(parents=True, exist_ok=True)
 
         if is_merge:
-            if primary_keys is None or record_timestamp is None:
-                raise ValueError(
-                    "primary_keys and record_timestamp must be provided for merge mode"
-                )
             df_existing, _ = read_parquet_partition(partition_dir, logger)
             if df_existing is not None and not df_existing.empty:
                 df_partition = pd.concat([df_existing, df_partition], ignore_index=True)

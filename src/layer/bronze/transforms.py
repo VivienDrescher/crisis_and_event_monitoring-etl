@@ -5,12 +5,12 @@ from pathlib import Path
 from typing import Dict, Optional
 from zoneinfo import ZoneInfo
 
+from src.data_quality_checks import check_required_columns
 from src.layer.bronze.metadata import add_bronze_metadata
 from src.utils.io import read_tabular_file, write_parquet
-from src.utils.schema import validate_required_columns
 
 
-def process_bronze_file(
+def process_bronze_file(  # COntinue by checkoing how to incroporate DQ checks
     input_path: Path,
     output_path: Path,
     table_name: str,
@@ -50,9 +50,9 @@ def process_bronze_file(
     # Read source file
     df = read_tabular_file(input_path, file_type, compression, reader_params, logger)
 
-    # Validate required columns
+    # Data Quality Checks
     required_columns = bronze_schema.get("required_columns", [])
-    validate_required_columns(df, required_columns, logger)
+    check_required_columns(df, required_columns, logger)
 
     # Add Bronze metadata
     df = add_bronze_metadata(

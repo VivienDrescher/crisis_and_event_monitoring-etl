@@ -6,7 +6,9 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from src.data_quality_checks import check_record_timestamp
 from src.layer.gold.transforms.common import process_silver_to_gold
+from src.utils.dataframe import get_record_timestamp_column
 from src.utils.io import (
     build_partition_path,
     load_yaml,
@@ -15,7 +17,6 @@ from src.utils.io import (
     write_parquet,
 )
 from src.utils.run import save_run_metadata
-from src.utils.schema import get_record_timestamp_column
 from src.utils.storage import clear_data_dir
 from src.utils.system import (
     PrefixedLogger,
@@ -170,6 +171,8 @@ def run():
 
                     # Filter for data within pipeline range
                     record_timestamp = get_record_timestamp_column(silver_column_schema)
+                    check_record_timestamp(df_silver, record_timestamp, logger)
+
                     df_silver_filtered = df_silver[
                         (df_silver[record_timestamp] >= pipeline_start_date)
                         & (df_silver[record_timestamp] <= pipeline_end_date)

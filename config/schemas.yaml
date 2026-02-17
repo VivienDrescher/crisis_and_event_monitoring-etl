@@ -44,7 +44,7 @@ schemas:
         acled: { layer: silver, table_name: acled }
 
       columns:
-        month_start_date: { type: "datetime64[ns]", nullable: false }
+        month_start_date: { type: "datetime64[ns]", nullable: false, primary_key: true }
         total_events: { type: Int64 }
 
     gdelt_daily: 
@@ -55,7 +55,7 @@ schemas:
 
       columns: 
 
-        event_date:     { type: "datetime64[ns]", nullable: false }
+        event_date:     { type: "datetime64[ns]", nullable: false, primary_key: true}
         total_events:   { type: Int64}
         avg_tone:       { type: Float64}
         total_mentions: { type: Int64}
@@ -68,7 +68,7 @@ schemas:
         gdelt: { layer: silver, table_name: gdelt }
 
       columns:
-        month_start_date: { type: "datetime64[ns]", nullable: false }
+        month_start_date: { type: "datetime64[ns]", nullable: false, primary_key: true }
         total_events:     { type: Int64}
         avg_tone:         { type: Float64}
         total_mentions:   { type: Int64}
@@ -82,7 +82,7 @@ schemas:
         acled: { layer: gold, table_name: acled_monthly }
       columns:
 
-        month_start_date:   { type: "datetime64[ns]", nullable: false }
+        month_start_date:   { type: "datetime64[ns]", nullable: false, primary_key: true }
         gdelt_total_events: { type: Int64 }
         gdelt_avg_tone:     { type: Float64 }
         acled_total_events: { type: Int64 }
