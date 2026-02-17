@@ -4,13 +4,32 @@ import logging
 import uuid
 import zipfile
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple, Union
 
 import pandas as pd
 import requests
+import yaml
 
 from src.utils.dataframe import deduplicate
 from src.utils.storage import build_partition_path
+
+# --------------------------
+# General I/O Utilities
+# --------------------------
+
+
+def load_yaml(path: str) -> Any:
+    """
+    Load a YAML file from a local path.
+
+    Args:
+        path: Path to the YAML file to load.
+
+    Returns:
+        Parsed YAML content as a Python object (dict, list, etc.).
+    """
+    with open(path) as f:
+        return yaml.safe_load(f)
 
 
 def download_file_from_url(
@@ -45,6 +64,11 @@ def download_file_from_url(
     logger.info("[download_and_extract_file] Download complete.")
 
     return True
+
+
+# --------------------------
+# Tabular File Readers
+# --------------------------
 
 
 def read_tabular_file(
@@ -118,6 +142,11 @@ def read_tabular_file(
         raise ValueError(f"[read_source_table] Unsupported file type: {file_type}")
 
 
+# --------------------------
+# Parquet Read/Write Utilities
+# --------------------------
+
+
 def read_parquet(
     file_path: Union[str, Path],
     columns: list[str] | None = None,
@@ -173,6 +202,11 @@ def write_parquet(
     tmp_path.replace(file_path)
 
     logger.info(f"[write_parquet] Safe wrote {len(df)} rows to {file_path}")
+
+
+# --------------------------
+# Partitioned Parquet Utilities
+# --------------------------
 
 
 def read_parquet_partition(

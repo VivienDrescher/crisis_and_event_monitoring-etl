@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import logging
-import logging.config
 import os
 import subprocess
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Literal, Optional, Tuple, Union
+from typing import Any, Callable, Literal, Optional, Union
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
@@ -17,9 +16,7 @@ from dotenv import load_dotenv
 # --------------------------
 
 
-def load_env(
-    env_file: str | Path | None = None, logger: Optional[logging.Logger] = None
-) -> Path | None:
+def load_env(env_file: str | Path | None = None) -> Path | None:
     """
     Load environment variables from a .env file.
 
@@ -30,22 +27,18 @@ def load_env(
 
     Args:
         env_file: Optional explicit path to .env file
-        logger: Optional logger for informational messages
 
     Returns:
         Path to the .env file that was loaded, or None if no file found.
     """
-    logger = logger or logging.getLogger(__name__)
 
     if env_file:
         env_path = Path(env_file)
         if env_path.exists():
             load_dotenv(env_path)
-            logger.info(f"[load_env] Loaded environment variables from {env_path}")
             return env_path
         else:
-            logger.warning(f"[load_env] Specified env file does not exist: {env_path}")
-            return None
+            raise ValueError(f"Specified env file does not exist: {env_path}")
 
     # ENV-specific resolution
     env = os.getenv("ENV", "local").lower()
@@ -55,12 +48,8 @@ def load_env(
         env_path = Path(candidate)
         if env_path.exists():
             load_dotenv(env_path)
-            logger.info(f"[load_env] Loaded environment variables from {env_path}")
             return env_path
 
-    logger.warning(
-        "[load_env] No .env file found. Environment variables may not be loaded."
-    )
     return None
 
 
@@ -92,70 +81,131 @@ class PrefixedLogger:
         self._logger.exception(f"{self._prefix}{msg}", *args, **kwargs)
 
 
-def setup_logger(
-    name: str,
-    log_dir: Union[str, Path],
-    debug: bool = False,
+def setup_pipeline_logging(
+    run_id: str,
+    pipeline_name: str,
+    base_log_dir: Union[str, Path],
+    debug: Optional[bool] = False,
     log_level: Optional[str] = None,
-    log_config: Optional[dict] = None,
-) -> Tuple[logging.Logger, Path]:
+) -> logging.Logger:
     """
-    Setup a logger with optional file output and configuration.
+    Configure logging for an end-to-end pipeline run.
 
-    Priority for log level:
-        1. debug=True      → DEBUG
-        2. log_level       → From .env or argument
-        3. default         → INFO
+    Creates a global pipeline log at:
+        <base_log_dir>/<run_id>/end2end_pipeline.log
 
     Args:
-        name: Logger name (e.g., "pipeline.bronze.gdelt")
-        log_dir: Directory where log file will be stored
-        debug: Force DEBUG level
-        log_level: Optional string level (INFO, WARNING, ERROR, etc.)
-        log_config: Optional dict for logging.config.dictConfig
+        run_id: Unique identifier for this pipeline run.
+        pipeline_name: Name of the pipeline (used as root logger name).
+        base_log_dir: Base directory where logs should be stored.
+        debug: If True, sets logging level to DEBUG; overrides log_level.
+        log_level: Optional string log level (e.g., "INFO", "WARNING").
 
     Returns:
-        Tuple of (logger instance, Path to log file)
+        Configured root logger for the pipeline.
     """
-    log_dir = Path(log_dir)
-    os.makedirs(log_dir, exist_ok=True)
 
-    log_file = log_dir / f"{name}.log"
+    root = logging.getLogger(pipeline_name)
 
-    # Determine effective logging level
+    # Log Level
+    if debug:
+        level = logging.DEBUG
+    else:
+        level_name = (log_level or "INFO").upper()
+        level = getattr(logging, level_name, logging.INFO)
+    root.setLevel(level)
+
+    root.handlers.clear()
+
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+
+    # Console
+    console = logging.StreamHandler()
+    console.setFormatter(formatter)
+    root.addHandler(console)
+
+    # Global pipeline log
+    base_log_dir = Path(base_log_dir) / run_id
+    base_log_dir.mkdir(parents=True, exist_ok=True)
+
+    pipeline_handler = logging.FileHandler(base_log_dir / "end2end_pipeline.log")
+    pipeline_handler.setFormatter(formatter)
+    root.addHandler(pipeline_handler)
+
+    return root
+
+
+def setup_standalone_logging(
+    run_id: str,
+    pipeline_name: str,
+    layer: str,
+    table_name: str,
+    base_log_dir: Union[str, Path],
+    debug: Optional[bool] = False,
+    log_level: Optional[str] = None,
+) -> logging.Logger:
+    """
+    Configure logging for a standalone layer/table script.
+
+    Creates dataset-specific logs at:
+        <base_log_dir>/local_runs/<layer>/<table_name>/<run_id>.log
+
+    If logging is already configured (e.g., orchestrator run),
+    this function returns a logger without reconfiguring handlers.
+
+    Args:
+        run_id: Unique identifier for this run.
+        pipeline_name: Name of the overall pipeline.
+        layer: Layer name (e.g., bronze, silver, gold).
+        table_name: Table or dataset name.
+        base_log_dir: Base directory for logs.
+        debug: If True, sets logging level to DEBUG; overrides log_level.
+        log_level: Optional string log level (e.g., "INFO", "WARNING").
+
+    Returns:
+        Configured logger for the specific layer/table.
+    """
+
+    root = logging.getLogger(pipeline_name)
+
+    # If root already configured → assume orchestrator run
+    if root.handlers:
+        return logging.getLogger(f"{pipeline_name}.{layer}.{table_name}")
+
+    logger = logging.getLogger(f"{layer}.{table_name}")
+
+    # Logging level
     if debug:
         level = logging.DEBUG
     else:
         level_name = (log_level or "INFO").upper()
         level = getattr(logging, level_name, logging.INFO)
 
-    # Configure logging
-    if log_config:
-        # Update file handler and root level
-        log_config["handlers"]["file"]["filename"] = str(log_file)
-        log_config["root"]["level"] = level
-        logging.config.dictConfig(log_config)
-    else:
-        # Basic default configuration
-        logging.basicConfig(
-            filename=log_file,
-            level=level,
-            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        )
-
-    # Create logger instance
-    logger = logging.getLogger(name)
     logger.setLevel(level)
 
-    # Ensure console output when debugging locally
-    if debug:
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(
-            logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-        )
-        logger.addHandler(console_handler)
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
-    return logger, log_file
+    # Console handler
+    console = logging.StreamHandler()
+    console.setFormatter(formatter)
+    logger.addHandler(console)
+
+    # File handler (per dataset)
+    log_dir = Path(base_log_dir) / "local_runs" / layer / table_name
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    file_handler = logging.FileHandler(log_dir / f"{run_id}.log")
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    return logging.getLogger(f"{layer}.{table_name}")
+
+
+def get_log_file_path(logger: logging.Logger) -> Path | None:
+    for handler in logger.handlers:
+        if isinstance(handler, logging.FileHandler):
+            return Path(handler.baseFilename)
+    return None
 
 
 # --------------------------

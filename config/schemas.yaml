@@ -25,9 +25,6 @@ schemas:
         num_events:       { source: EVENTS, type: int64, nullable: false }
 
     gdelt:
-
-      transform_name: silver_gdelt_standard_v1
-
       columns: 
         event_id:     { source: GLOBALEVENTID, type: string, nullable: false, primary_key: true }
         event_date:   { source: SQLDATE, type: "datetime64[ns]", nullable: false, partition_key: true, record_timestamp: true }
@@ -41,6 +38,8 @@ schemas:
   gold: 
 
     acled_monthly:
+      enabled: true
+
       inputs:
         acled: { layer: silver, table_name: acled }
 
@@ -49,7 +48,7 @@ schemas:
         total_events: { type: Int64 }
 
     gdelt_daily: 
-      transform_name: gold_gdelt_daily_metrics_v1
+      enabled: true
      
       inputs: 
         gdelt: { layer: silver, table_name: gdelt }
@@ -63,6 +62,8 @@ schemas:
         total_articles: { type: Int64}
       
     gdelt_monthly:
+      enabled: true
+
       inputs:
         gdelt: { layer: silver, table_name: gdelt }
 
@@ -74,11 +75,13 @@ schemas:
         total_articles:   { type: Int64}
              
     conflicts_monthly:
+      enabled: true
+
       inputs:
         gdelt: { layer: gold, table_name: gdelt_monthly }
         acled: { layer: gold, table_name: acled_monthly }
-
       columns:
+
         month_start_date:   { type: "datetime64[ns]", nullable: false }
         gdelt_total_events: { type: Int64 }
         gdelt_avg_tone:     { type: Float64 }
