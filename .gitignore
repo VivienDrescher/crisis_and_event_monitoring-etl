@@ -24,3 +24,6 @@ data/_runs/
 
 # Ruff
 .ruff_cache 
+
+# Pytest Cache 
+.pytest_cache

@@ -6,8 +6,8 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from src.data_quality_checks import check_record_timestamp
 from src.layer.gold.transforms.common import process_silver_to_gold
+from src.utils.data_quality_checks import check_record_timestamp
 from src.utils.dataframe import get_record_timestamp_column
 from src.utils.io import (
     build_partition_path,

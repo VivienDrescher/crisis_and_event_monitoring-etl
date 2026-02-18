@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Dict, Optional
 from zoneinfo import ZoneInfo
 
-from src.data_quality_checks import check_required_columns
 from src.layer.bronze.metadata import add_bronze_metadata
+from src.utils.data_quality_checks import check_required_columns
 from src.utils.io import read_tabular_file, write_parquet
 
 

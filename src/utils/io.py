@@ -10,7 +10,7 @@ import pandas as pd
 import requests
 import yaml
 
-from src.data_quality_checks import (
+from src.utils.data_quality_checks import (
     check_partition_keys_exist,
     check_record_timestamp,
 )

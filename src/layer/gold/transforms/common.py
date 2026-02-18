@@ -5,14 +5,14 @@ from typing import Dict, Optional
 
 import pandas as pd
 
-from src.data_quality_checks import (
+from src.layer.gold.transforms.custom_registry import GOLD_DATASET_TRANSFORMS
+from src.utils.data_quality_checks import (
     check_column_types,
     check_non_nullable_columns,
     check_primary_key_uniqueness,
     check_primary_keys_exist,
     check_required_columns,
 )
-from src.layer.gold.transforms.custom_registry import GOLD_DATASET_TRANSFORMS
 from src.utils.dataframe import cast_to_schema
 
 

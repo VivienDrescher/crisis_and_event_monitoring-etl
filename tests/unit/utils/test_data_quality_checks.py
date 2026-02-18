@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 import pytest
 
-from src.data_quality_checks import (
+from src.utils.data_quality_checks import (
     check_column_types,
     check_data_recency,
     check_date_range_coverage,
