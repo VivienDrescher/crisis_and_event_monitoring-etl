@@ -1,3 +1,18 @@
+# 📊 Crisis & Event Monitoring – ETL Pipeline
+
+## 📑 Table of Contents
+
+- [Overview](#-overview)
+- [Data Sources](#-data-sources)
+- [Architecture](#-architecture)
+- [Storage & Serving](#-storage--serving)
+- [Setup & Installation](#-setup--installation)
+- [Data Quality Checks](#-data-quality-checks)
+- [Testing](#-testing)
+- [Observability](#-observability)
+- [Design Decisions](#-design-decisions)
+- [License & Author](#-license--author)
+
 ## 🚀 Overview
 
 ### Purpose of the Project
@@ -70,8 +85,6 @@ ACLED provides high-quality political violence and protest event data, including
 - **ACLED:** High-quality, curated political violence data  
 - **Combined Benefits:** Cross-source validation, richer country-level metrics, more robust monitoring signals
 
-
-
 ## 🏗 Architecture
 ### Data Flow Overview 
 The pipeline follows a classic medallion architecture with layered storage, supporting incremental and full-refresh processing. Data flows from raw ingestion to analytics-ready datasets.
@@ -130,7 +143,6 @@ The pipeline supports multiple acquisition strategies to handle diverse data sou
   Publicly available sources (e.g., GDELT) are downloaded automatically via HTTP.  
   Downloads use retry logic and timeout handling.  
   This ensures the pipeline always has the most recent data without manual intervention.
-
 
 #### File Ingestion Modes
 
